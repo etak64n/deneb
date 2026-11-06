@@ -239,8 +239,8 @@ await call("print", highlight({ id, status: created.video.status, upload: create
 await pause(1600);
 
 console.log("Upload the file over tus");
-await call("caption", "2  Upload the file over tus, resumable");
-await call("type", "# send welcome.mp4 to the upload URL with any tus client", "comment");
+await call("caption", "2  Upload the file, which resumes if the connection drops");
+await call("type", "# upload welcome.mp4, resumable if the connection drops", "comment");
 const metadata = Object.entries({ ...created.upload.metadata, filename: "welcome.mp4" })
   .map(([name, value]) => `${name} ${Buffer.from(value).toString("base64")}`)
   .join(",");
