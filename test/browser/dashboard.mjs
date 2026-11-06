@@ -51,9 +51,11 @@ function shot(page, name, options = {}) {
   return page.screenshot({ path: path.join(out, `${name}.png`), ...options });
 }
 
-// Waits until the images in the page have loaded, so that no screenshot catches them empty.
+// Waits until the images shown in the page have loaded, so that no screenshot catches them empty.
 async function imagesLoaded(page) {
-  await page.waitForFunction(() => [...document.images].every((image) => image.complete && image.naturalWidth > 0));
+  await page.waitForFunction(() =>
+    [...document.images].filter((image) => image.checkVisibility()).every((image) => image.complete && image.naturalWidth > 0),
+  );
 }
 
 // Plays the video of the page for a few seconds with its subtitles on, and pauses it.
@@ -86,6 +88,7 @@ await imagesLoaded(page);
 await shot(page, "01-setup");
 await page.getByLabel("Email").fill("admin@example.com");
 await page.getByLabel("Password").fill("correct horse battery");
+await page.getByLabel("Setup code").fill(process.env.DENEB_SETUP_CODE ?? "");
 await page.getByRole("button", { name: "Create and sign in" }).click();
 await page.getByRole("button", { name: "Upload videos" }).waitFor();
 await shot(page, "02-videos-empty");

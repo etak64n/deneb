@@ -55,9 +55,16 @@ python3 "$work/receiver.py" "$work/hooks.jsonl" >"$work/receiver.log" 2>&1 &
 receiver_pid=$!
 
 echo "Make a test video with the ffmpeg of the image"
+# With s3, the video is larger than a part of a multipart upload, 16 MiB, so that its
+# file goes to the bucket in parts.
+rate=()
+[[ $storage == s3 ]] && rate=(-b:v 24M -minrate 24M -maxrate 24M -bufsize 24M -x264-params nal-hrd=cbr)
 docker run --rm --user "$(id -u):$(id -g)" -v "$work:/out" --entrypoint ffmpeg "$image" \
   -hide_banner -loglevel error -f lavfi -i testsrc2=size=1280x720:rate=30:duration=8 \
-  -f lavfi -i sine=frequency=440:duration=8 -c:v libx264 -pix_fmt yuv420p -c:a aac /out/clip.mp4
+  -f lavfi -i sine=frequency=440:duration=8 -c:v libx264 "${rate[@]}" -pix_fmt yuv420p -c:a aac /out/clip.mp4
+if [[ $storage == s3 ]]; then
+  (( $(stat -c %s "$work/clip.mp4") > 16 * 1024 * 1024 )) || fail "the clip is not larger than a part"
+fi
 
 case $storage in
   local)
@@ -93,9 +100,19 @@ for _ in $(seq 60); do
 done
 curl -fsS "$base/healthz" >/dev/null || fail "deneb did not start"
 
-echo "Create the administrator and a key of the API"
+echo "Create the administrator with the setup code from the log, and a key of the API"
+code=""
+for _ in $(seq 20); do
+  code=$(docker logs "$container" 2>&1 | jq -R -r 'fromjson? | select(.setup_code != null) | .setup_code' | tail -n 1)
+  [[ -n $code ]] && break
+  sleep 0.5
+done
+[[ -n $code ]] || fail "deneb wrote no setup code to its log"
+status=$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Deneb-Client: e2e' -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"correct horse battery","setup_code":"AAAA-AAAA"}' "$base/auth/setup")
+[[ $status == 403 ]] || fail "a wrong setup code answered $status"
 curl -fsS -c "$work/cookies" -H 'X-Deneb-Client: e2e' -H 'Content-Type: application/json' \
-  -d '{"email":"admin@example.com","password":"correct horse battery"}' "$base/auth/setup" >/dev/null
+  -d "{\"email\":\"admin@example.com\",\"password\":\"correct horse battery\",\"setup_code\":\"$code\"}" "$base/auth/setup" >/dev/null
 key=$(curl -fsS -b "$work/cookies" -H 'X-Deneb-Client: e2e' -H 'Content-Type: application/json' \
   -d '{"name":"e2e"}' "$base/v1/api-keys" | jq -r .api_key.secret)
 [[ $key == dnb_* ]] || fail "unexpected key $key"
@@ -182,6 +199,11 @@ PY
 
 echo "Delete the video"
 curl "${api[@]}" -X DELETE "$base/v1/videos/$id" >/dev/null
+# A job removes the files a moment after.
+for _ in $(seq 20); do
+  [[ $(curl -s -o /dev/null -w '%{http_code}' "$hls") == 404 ]] && break
+  sleep 0.5
+done
 [[ $(curl -s -o /dev/null -w '%{http_code}' "$hls") == 404 ]] || fail "the stream of a deleted video still plays"
 if [[ $storage == s3 ]]; then
   left=$("${s3[@]}" list-objects-v2 --bucket deneb --prefix "videos/$id/" --query 'length(Contents || `[]`)')

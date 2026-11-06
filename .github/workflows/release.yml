@@ -83,7 +83,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # v1.2.3 is published as 1.2.3, 1.2, and latest.
+      # v1.2.3 is published as 1.2.3, 1.2, and latest; a prerelease such as
+      # v1.3.0-rc.1 only under its own version.
       - id: meta
         uses: docker/metadata-action@v6
         with:
@@ -91,7 +92,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - name: Join the architectures under the tags
         working-directory: ${{ runner.temp }}/digests

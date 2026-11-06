@@ -5,7 +5,7 @@
 # test/browser/screenshots.
 #
 # Usage: test/browser/run.sh <image>
-# Needs docker, python3, espeak-ng, Node.js, and Google Chrome, and
+# Needs docker, jq, python3, espeak-ng, Node.js, and Google Chrome, and
 # `pnpm --dir test/browser install` before.
 set -euo pipefail
 
@@ -65,7 +65,13 @@ for _ in $(seq 60); do
   curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break
   sleep 1
 done
+# The administrator is created with the setup code that deneb writes to its log.
+for _ in $(seq 20); do
+  code=$(docker logs "$container" 2>&1 | jq -R -r 'fromjson? | select(.setup_code != null) | .setup_code' | tail -n 1)
+  [[ -n $code ]] && break
+  sleep 0.5
+done
 
 rm -rf "$here/screenshots"
-node "$here/dashboard.mjs" http://127.0.0.1:8080 "$work/clips" "$here/screenshots"
+DENEB_SETUP_CODE=$code node "$here/dashboard.mjs" http://127.0.0.1:8080 "$work/clips" "$here/screenshots"
 passed=true
