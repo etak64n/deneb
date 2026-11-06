@@ -1,6 +1,6 @@
 # Checks deneb on every push to main and every pull request: the Go code with its
 # tests, the dashboard, and the Docker image, which test/e2e.sh runs end to end over
-# the API and test/browser/run.sh through the dashboard.
+# the API on amd64 and arm64, and test/browser/run.sh through the dashboard.
 name: CI
 
 on:
@@ -59,8 +59,42 @@ jobs:
 
       - run: pnpm exec vite build
 
+  # The image on both architectures that it ships for, each on a runner of its own,
+  # with its media on the volume and in a bucket.
   e2e:
-    runs-on: ubuntu-latest
+    name: e2e (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # The caches are those of the release workflow, so that each warms the other.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: deneb:e2e
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,scope=${{ matrix.platform }},mode=max
+
+      - run: ./test/e2e.sh deneb:e2e local
+
+      - run: ./test/e2e.sh deneb:e2e s3
+
+  # The dashboard in Google Chrome, on amd64 only: Playwright runs Chrome on Linux for
+  # amd64 alone, and the dashboard is the same JavaScript on every architecture.
+  browser:
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -72,14 +106,8 @@ jobs:
           context: .
           load: true
           tags: deneb:e2e
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=linux/amd64
 
-      - run: ./test/e2e.sh deneb:e2e local
-
-      - run: ./test/e2e.sh deneb:e2e s3
-
-      # The same image again, through its dashboard in Google Chrome, which the runner has.
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: test/browser/package.json

@@ -690,7 +690,7 @@ DENEB_DATA_DIR=./data ./deneb
 - `test/e2e.sh <image> s3` does the same with a bucket of RustFS, and needs the AWS CLI.
 - `test/browser/run.sh <image>` uses the dashboard in Google Chrome, and keeps a screenshot of each step in test/browser/screenshots. It needs Node.js, Google Chrome, espeak-ng, and `pnpm --dir test/browser install` first.
 
-The CI workflow (.github/workflows/ci.yml) runs them all on every push to main and every pull request.
+The CI workflow (.github/workflows/ci.yml) runs them all on every push to main and every pull request, and the end-to-end tests on amd64 and arm64.
 
 ### Releases
 
