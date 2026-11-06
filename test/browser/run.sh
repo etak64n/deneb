@@ -3,7 +3,7 @@
 # them spoken, starts a container and a receiver of webhooks, and runs a script of
 # this folder against it: dashboard.mjs, the default, uses the dashboard the way an
 # administrator does and keeps a screenshot of each step; demo.mjs records a short
-# demo. What the script writes goes to test/browser/out/<script>.
+# demo of the API. What the script writes goes to test/browser/out/<script>.
 #
 # Usage: test/browser/run.sh <image> [dashboard.mjs|demo.mjs]
 # Needs docker, jq, python3, espeak-ng, Node.js, and Google Chrome, and

@@ -1,5 +1,5 @@
-# Records a demo of the dashboard on demand, as a GIF for READMEs and an MP4 for
-# posts, which the run keeps as the artifact named demo.
+# Records a demo of the API on demand, as a GIF for READMEs and an MP4 for posts,
+# which the run keeps as the artifact named demo.
 name: Demo
 
 on:

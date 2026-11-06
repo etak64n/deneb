@@ -691,7 +691,7 @@ DENEB_DATA_DIR=./data ./deneb
 - `test/e2e.sh <image> local` runs an image end to end: it uploads a video, waits for its encoding and captions, fetches what a player fetches, and checks the signatures of the webhooks. It needs Docker, curl, jq, and Python.
 - `test/e2e.sh <image> s3` does the same with a bucket of RustFS, and needs the AWS CLI.
 - `test/browser/run.sh <image>` uses the dashboard in Google Chrome, and keeps a screenshot of each step in test/browser/out/dashboard. It needs Node.js, Google Chrome, espeak-ng, and `pnpm --dir test/browser install` first.
-- `test/browser/run.sh <image> demo.mjs` records a short demo of the dashboard, and `test/browser/gif.sh <image> test/browser/out/demo` turns it into a GIF and an MP4. The Demo workflow (.github/workflows/demo.yml) does both when you start it.
+- `test/browser/run.sh <image> demo.mjs` records a short demo of the API, and `test/browser/gif.sh <image> test/browser/out/demo` turns it into a GIF and an MP4. The Demo workflow (.github/workflows/demo.yml) does both when you start it.
 
 The CI workflow (.github/workflows/ci.yml) runs them all on every push to main and every pull request, and the end-to-end tests on amd64 and arm64.
 
