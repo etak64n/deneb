@@ -1,4 +1,6 @@
-# The build output of the dashboard. dist/.keep stays, so that go:embed finds the folder.
+# The build output of the dashboard. dist/.keep stays, so that go:embed finds the
+# folder before the first build. Each build empties dist and copies public/.keep
+# back into it.
 /web/node_modules/
 /web/dist/*
 !/web/dist/.keep
