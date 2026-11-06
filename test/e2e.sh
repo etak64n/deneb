@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Runs a deneb image the way its users do. It starts a container, creates the
-# administrator and a key of the API, uploads a short video over tus, waits for
-# the encoding and the captions, fetches what a player fetches, and checks the
-# signed webhook that deneb sends when the video is ready.
+# administrator and a key of the API, uploads a short video, in one PUT with local
+# storage and over tus with s3, waits for the encoding and the captions, fetches
+# what a player fetches, and checks the signed webhook that deneb sends when the
+# video is ready.
 #
 # Usage: test/e2e.sh <image> [local|s3]
 # With s3, deneb keeps the media in a bucket of RustFS, an S3-compatible server.
@@ -121,24 +122,30 @@ api=(-fsS -H "Authorization: Bearer $key" -H 'Content-Type: application/json')
 secret=$(curl "${api[@]}" -d '{"url":"http://host.docker.internal:9876/hook"}' "$base/v1/webhooks" | jq -r .webhook.secret)
 [[ $secret == whsec_* ]] || fail "unexpected webhook secret $secret"
 
-echo "Create a video and upload its file over tus"
+echo "Create a video and send its file"
 created=$(curl "${api[@]}" -d '{"title":"E2E clip"}' "$base/v1/videos")
 id=$(jq -r .video.id <<<"$created")
-token=$(jq -r .upload.metadata.token <<<"$created")
 upload_url=$(jq -r .upload.url <<<"$created")
-size=$(stat -c %s "$work/clip.mp4")
-b64() { printf %s "$1" | base64 -w0; }
-metadata="video_id $(b64 "$id"),token $(b64 "$token"),filename $(b64 clip.mp4)"
-
-status=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Tus-Resumable: 1.0.0' -H "Upload-Length: $size" \
-  -H "Upload-Metadata: video_id $(b64 "$id"),token $(b64 "1.forged")" "$upload_url")
+status=$(curl -s -o /dev/null -w '%{http_code}' -T "$work/clip.mp4" "${upload_url%%\?*}?token=1.forged")
 [[ $status == 401 ]] || fail "an upload with a forged token answered $status"
-
-location=$(curl -fsS -D - -o /dev/null -X POST -H 'Tus-Resumable: 1.0.0' -H "Upload-Length: $size" \
-  -H "Upload-Metadata: $metadata" "$upload_url" | tr -d '\r' | awk 'tolower($1) == "location:" { print $2 }')
-[[ $location == "$base/v1/uploads/"* ]] || fail "unexpected upload location $location"
-curl -fsS -X PATCH -H 'Tus-Resumable: 1.0.0' -H 'Upload-Offset: 0' -H 'Content-Type: application/offset+octet-stream' \
-  --data-binary "@$work/clip.mp4" "$location" >/dev/null
+if [[ $storage == local ]]; then
+  # The whole file in one PUT to the upload URL.
+  uploaded=$(curl -fsS -T "$work/clip.mp4" "$upload_url")
+  [[ $(jq -r .video.status <<<"$uploaded") == queued ]] || fail "the uploaded video is not queued: $uploaded"
+else
+  # A resumable upload over tus: create it with the metadata, then send the file to
+  # the URL that deneb answers with, which carries the token.
+  endpoint=$(jq -r .upload.tus.endpoint <<<"$created")
+  token=$(jq -r .upload.tus.metadata.token <<<"$created")
+  size=$(stat -c %s "$work/clip.mp4")
+  b64() { printf %s "$1" | base64 -w0; }
+  location=$(curl -fsS -D - -o /dev/null -X POST -H 'Tus-Resumable: 1.0.0' -H "Upload-Length: $size" \
+    -H "Upload-Metadata: video_id $(b64 "$id"),token $(b64 "$token"),filename $(b64 clip.mp4)" "$endpoint" |
+    tr -d '\r' | awk 'tolower($1) == "location:" { print $2 }')
+  [[ $location == "$base/v1/uploads/$id?token="* ]] || fail "unexpected upload location $location"
+  curl -fsS -X PATCH -H 'Tus-Resumable: 1.0.0' -H 'Upload-Offset: 0' -H 'Content-Type: application/offset+octet-stream' \
+    --data-binary "@$work/clip.mp4" "$location" >/dev/null
+fi
 
 echo "Wait for the encoding and the captions"
 for _ in $(seq 150); do

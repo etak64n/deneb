@@ -362,8 +362,10 @@ func TestVideos(t *testing.T) {
 	if created.Video.Title != "Talk" || created.Video.Status != store.VideoWaiting || created.Video.Playback != nil {
 		t.Errorf("video %+v", created.Video)
 	}
-	if created.Upload.URL != h.url+"/v1/uploads/" || created.Upload.Metadata["video_id"] != created.Video.ID || created.Upload.Metadata["token"] == "" {
-		t.Errorf("upload %+v", created.Upload)
+	upload := created.Upload
+	if !strings.HasPrefix(upload.URL, h.url+"/v1/uploads/"+created.Video.ID+"?token=") || upload.Tus.Endpoint != h.url+"/v1/uploads/" ||
+		upload.Tus.Metadata["video_id"] != created.Video.ID || upload.Tus.Metadata["token"] == "" {
+		t.Errorf("upload %+v", upload)
 	}
 	if r := h.dashboard("POST", "/v1/videos", map[string]string{"title": strings.Repeat("a", 301)}); r.status != http.StatusBadRequest {
 		t.Errorf("a long title: %d", r.status)
@@ -435,7 +437,7 @@ func TestUpload(t *testing.T) {
 	h.signIn()
 	var created createdVideo
 	h.dashboard("POST", "/v1/videos", map[string]string{"title": "Clip"}).json(t, &created)
-	id, token := created.Video.ID, created.Upload.Metadata["token"]
+	id, token := created.Video.ID, created.Upload.Tus.Metadata["token"]
 	data := bytes.Repeat([]byte("frame "), 10_000)
 
 	if r := h.tusCreate(len(data), map[string]string{"video_id": id}); r.status != http.StatusUnauthorized {
@@ -448,9 +450,17 @@ func TestUpload(t *testing.T) {
 	if r.status != http.StatusCreated {
 		t.Fatalf("create the upload: %d %s", r.status, r.body)
 	}
+	// The upload is under the ID of the video, and its URL carries the token, which
+	// every later request needs.
 	location := r.header.Get("Location")
-	if !strings.HasPrefix(location, h.url+"/v1/uploads/") {
+	if !strings.HasPrefix(location, h.url+"/v1/uploads/"+id+"?token=") {
 		t.Fatalf("location %q", location)
+	}
+	bare := strings.TrimPrefix(strings.Split(location, "?")[0], h.url)
+	for _, method := range []string{"HEAD", "PATCH", "DELETE"} {
+		if r := h.do(method, bare, nil, "Tus-Resumable", "1.0.0", "Upload-Offset", "0", "Content-Type", "application/offset+octet-stream"); r.status != http.StatusUnauthorized {
+			t.Errorf("%s of the upload without its token: %d", method, r.status)
+		}
 	}
 	patch := h.do("PATCH", strings.TrimPrefix(location, h.url), data,
 		"Tus-Resumable", "1.0.0", "Upload-Offset", "0", "Content-Type", "application/offset+octet-stream")
@@ -459,10 +469,7 @@ func TestUpload(t *testing.T) {
 	}
 
 	// The video is queued by the time the last part is answered, and its file waits
-	// for the encoder where it arrived, under the ID of the video.
-	if !strings.HasSuffix(location, "/v1/uploads/"+id) {
-		t.Errorf("location %q does not end with the ID of the video", location)
-	}
+	// for the encoder where it arrived.
 	video, err := h.app.Store().Video(context.Background(), id)
 	if err != nil || video.Status != store.VideoQueued || video.SourceSize != int64(len(data)) {
 		t.Errorf("video %+v, %v", video, err)
@@ -477,11 +484,11 @@ func TestUpload(t *testing.T) {
 
 	// The file of a video deleted during its upload is refused, and removed.
 	_, gone, _ := h.app.CreateVideo(context.Background(), "", "")
-	r = h.tusCreate(len(data), gone.Metadata)
+	r = h.tusCreate(len(data), gone.Tus.Metadata)
 	if r.status != http.StatusCreated {
 		t.Fatalf("create the upload: %d %s", r.status, r.body)
 	}
-	goneID := gone.Metadata["video_id"]
+	goneID := gone.Tus.Metadata["video_id"]
 	h.dashboard("DELETE", "/v1/videos/"+goneID, nil)
 	patch = h.do("PATCH", strings.TrimPrefix(r.header.Get("Location"), h.url), data,
 		"Tus-Resumable", "1.0.0", "Upload-Offset", "0", "Content-Type", "application/offset+octet-stream")
@@ -493,6 +500,47 @@ func TestUpload(t *testing.T) {
 	}
 }
 
+// A file arrives in one PUT to the upload URL, which needs its own token.
+func TestPutUpload(t *testing.T) {
+	h := newHarness(t, nil)
+	h.signIn()
+	var created, other createdVideo
+	h.dashboard("POST", "/v1/videos", map[string]string{"title": "Clip"}).json(t, &created)
+	h.dashboard("POST", "/v1/videos", map[string]string{"title": "Other"}).json(t, &other)
+	id := created.Video.ID
+	put := strings.TrimPrefix(created.Upload.URL, h.url)
+	data := bytes.Repeat([]byte("frame "), 10_000)
+
+	wrong := strings.Split(put, "?")[0] + "?" + strings.Split(strings.TrimPrefix(other.Upload.URL, h.url), "?")[1]
+	for _, path := range []string{strings.Split(put, "?")[0], strings.Split(put, "?")[0] + "?token=1.forged", wrong} {
+		if r := h.do("PUT", path, data); r.status != http.StatusUnauthorized {
+			t.Errorf("PUT %s: %d %s", path, r.status, r.body)
+		}
+	}
+	if r := h.do("PUT", put, []byte{}); r.status != http.StatusBadRequest {
+		t.Errorf("a PUT without a file: %d %s", r.status, r.body)
+	}
+	r := h.do("PUT", put, data)
+	var got struct {
+		Video app.VideoView `json:"video"`
+	}
+	r.json(t, &got)
+	if r.status != http.StatusOK || got.Video.Status != store.VideoQueued || got.Video.SourceSize != int64(len(data)) || r.header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Errorf("PUT the file: %d %v %+v", r.status, r.header, got.Video)
+	}
+	if stored, err := os.ReadFile(h.app.UploadPath(id)); err != nil || !bytes.Equal(stored, data) {
+		t.Errorf("the upload: %d bytes, %v", len(stored), err)
+	}
+	if r := h.do("PUT", put, data); r.status != http.StatusConflict {
+		t.Errorf("a second PUT: %d", r.status)
+	}
+	// Pages of other sites may send files there.
+	if r := h.do("OPTIONS", put, nil, "Origin", "https://site.example", "Access-Control-Request-Method", "PUT"); r.status != http.StatusNoContent ||
+		r.header.Get("Access-Control-Allow-Origin") != "*" || !strings.Contains(r.header.Get("Access-Control-Allow-Methods"), "PUT") {
+		t.Errorf("preflight: %d %v", r.status, r.header)
+	}
+}
+
 func TestUploadURLs(t *testing.T) {
 	start := func(h *harness, headers ...string) string {
 		h.t.Helper()
@@ -500,7 +548,7 @@ func TestUploadURLs(t *testing.T) {
 		if err != nil {
 			h.t.Fatal(err)
 		}
-		r := h.tusCreate(10, upload.Metadata, headers...)
+		r := h.tusCreate(10, upload.Tus.Metadata, headers...)
 		if r.status != http.StatusCreated {
 			h.t.Fatalf("create the upload: %d %s", r.status, r.body)
 		}

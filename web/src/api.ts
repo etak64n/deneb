@@ -37,8 +37,10 @@ export interface Video {
 }
 
 export interface Upload {
+  /** Takes the whole file in one PUT. */
   url: string;
-  metadata: Record<string, string>;
+  /** Where a tus client creates an upload that resumes after a lost connection. */
+  tus: { endpoint: string; metadata: Record<string, string> };
   expires_at: string;
 }
 

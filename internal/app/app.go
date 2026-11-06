@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -261,12 +262,20 @@ func (a *App) View(video store.Video, base string) VideoView {
 	return view
 }
 
-// UploadView tells a client where to send the file of a new video.
+// UploadView tells a client where to send the file of a new video, in one of two ways.
+// Both carry the upload token of the video, which works until ExpiresAt.
 type UploadView struct {
-	// URL is the tus endpoint. Clients send the file to it with the metadata below.
-	URL       string            `json:"url"`
-	Metadata  map[string]string `json:"metadata"`
-	ExpiresAt time.Time         `json:"expires_at"`
+	// URL takes the whole file in one PUT, as the signed URLs of buckets do.
+	URL string `json:"url"`
+	// Tus creates an upload in the tus protocol, which resumes after a lost connection.
+	Tus       TusView   `json:"tus"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// TusView is where a tus client creates the upload of a video, and with what metadata.
+type TusView struct {
+	Endpoint string            `json:"endpoint"`
+	Metadata map[string]string `json:"metadata"`
 }
 
 // CreateVideo creates a video, and returns where to upload its file.
@@ -276,9 +285,13 @@ func (a *App) CreateVideo(ctx context.Context, title, base string) (store.Video,
 		return store.Video{}, UploadView{}, err
 	}
 	exp := a.now().Add(UploadTTL).Truncate(time.Second)
+	token := a.sign("upload", video.ID, exp)
 	return video, UploadView{
-		URL:       base + "/v1/uploads/",
-		Metadata:  map[string]string{"video_id": video.ID, "token": a.sign("upload", video.ID, exp)},
+		URL: base + "/v1/uploads/" + video.ID + "?token=" + url.QueryEscape(token),
+		Tus: TusView{
+			Endpoint: base + "/v1/uploads/",
+			Metadata: map[string]string{"video_id": video.ID, "token": token},
+		},
 		ExpiresAt: exp,
 	}, nil
 }

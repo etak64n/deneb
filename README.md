@@ -4,7 +4,7 @@ deneb is a self-hosted video API that runs as one Docker image, as an alternativ
 You upload a video, and deneb encodes it to HLS in several qualities, writes captions with Whisper, and returns signed URLs to play or embed it.
 This README explains what deneb does, how it works, how to run it, and how to use its API.
 
-![A terminal creates a video with curl, uploads its file over tus, and receives the signed webhooks; a site then embeds the video, which plays with the captions that deneb wrote.](.github/demo.gif)
+![A terminal creates a video with curl, sends its file in one PUT, and receives the signed webhooks; a site then embeds the video, which plays with the captions that deneb wrote.](.github/demo.gif)
 
 ## Contents
 
@@ -33,6 +33,7 @@ This README explains what deneb does, how it works, how to run it, and how to us
   - [API](#api)
     - [Authentication and errors](#authentication-and-errors)
     - [Upload a video](#upload-a-video)
+    - [Resumable uploads](#resumable-uploads)
     - [Upload from a browser](#upload-from-a-browser)
     - [Videos](#videos)
     - [The video object](#the-video-object)
@@ -52,7 +53,7 @@ This README explains what deneb does, how it works, how to run it, and how to us
 ## In short
 
 - deneb is one Go program with SQLite, ffmpeg, and whisper.cpp in one image. It needs no database server, no queue, and no cloud service.
-- Your app creates videos through a JSON API. Your servers or the browsers of your users then upload the files with tus, a protocol for resumable uploads.
+- Your app creates a video through a JSON API, and gets a signed URL for its file. Your server, or the browser of your user, sends the file there in one PUT, or with tus, a protocol for uploads that resume after a lost connection.
 - deneb encodes each video to HLS (HTTP Live Streaming). HLS splits a video into short segments in several qualities, and players switch between the qualities to fit the connection.
 - Playback URLs are signed and expire. An embed page plays a video in an iframe on any site.
 - Webhooks tell your app when a video is ready, when it failed, and when its captions are ready.
@@ -69,8 +70,8 @@ deneb takes a file, turns it into a stream in the background, and serves the str
 
 A video goes through six steps.
 
-1. Your server creates a video with `POST /v1/videos`. deneb answers with the video and an upload URL, whose token works for 24 hours.
-2. Your server, or the browser of your user, sends the file to the upload URL over tus. The token lets a browser upload without your API key.
+1. Your server creates a video with `POST /v1/videos`. deneb answers with the video and its upload URL, whose token works for 24 hours.
+2. Your server, or the browser of your user, sends the file to the upload URL in one PUT, or with tus. The token lets a browser upload without your API key.
 3. When the last part arrives, deneb records the upload and queues the video.
 4. An encoder runs ffmpeg once over the file and writes every quality, then a poster and a storyboard for previews on the seek bar. It stores them, and the file itself, in the storage.
 5. The video is ready, and deneb sends `video.ready` to your webhooks. With captions on, whisper.cpp then transcribes the audio, and deneb sends `video.captions_ready`.
@@ -79,8 +80,8 @@ A video goes through six steps.
 ### Design choices
 
 - deneb is one program in one image (cmd/deneb). SQLite keeps the videos, the jobs, and the keys, and the image has ffmpeg and whisper.cpp. A `docker run` with one volume is a whole deployment.
-- Uploads use tus (internal/server/uploads.go). A file of several gigabytes resumes where a lost connection stopped it, rather than starting over.
-- Each video has one upload, under the ID of the video. The file stays where it arrived until the encoder has stored it, so a restart of deneb loses no upload.
+- A file arrives in one PUT to a signed URL, as files go into buckets, or with tus (internal/server/uploads.go). tus resumes a file of several gigabytes where a lost connection stopped it, rather than starting over.
+- Each video has one upload, under the ID of the video, and every request about it needs its token. The file stays where it arrived until the encoder has stored it, so a restart of deneb loses no upload.
 - One ffmpeg run writes every quality (internal/media/hls.go). deneb decodes the file once rather than once per quality.
 - Key frames fall every two seconds, and segments are four seconds long. The qualities line up, so a player can switch at any segment.
 - The segments are MPEG-TS, which every HLS player plays: Safari, hls.js, Video.js, and the players of iOS and Android.
@@ -113,7 +114,8 @@ This section lists what deneb does, and its limits.
 
 ### Uploads
 
-- deneb takes uploads over tus 1.0 (tusd). Any tus client works, such as tus-js-client in browsers and Node.js.
+- A file arrives in one PUT to the upload URL of its video, which any HTTP client sends, such as `curl -T`.
+- A file can also arrive over tus 1.0 (tusd), which resumes after a lost connection. Any tus client works, such as tus-js-client in browsers and Node.js.
 - A file can be up to 50 GB, which `DENEB_MAX_UPLOAD_GB` changes.
 - A video takes one file. An upload for a video that has its file gets 409.
 - The dashboard uploads three files at a time, in parts of 64 MiB, and resumes them after a lost connection.
@@ -357,15 +359,24 @@ KEY=dnb_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 ### Upload a video
 
-An upload creates the video with one call of the API, then sends its file over tus.
+An upload takes two requests: one creates the video, and one sends its file to the upload URL that the answer holds.
 
 ```sh
-# Create a video. The answer holds the video and where to send its file.
-curl -s "$DENEB/v1/videos" \
+# Create a video, and keep the URL where its file goes.
+UPLOAD_URL=$(curl -s "$DENEB/v1/videos" \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
-  -d '{"title": "Product tour"}'
+  -d '{"title": "Product tour"}' | jq -r .upload.url)
+
+# Send the file there in one PUT. deneb answers with the video, now queued.
+curl -T clip.mp4 "$UPLOAD_URL"
 ```
+
+- `curl -T` sends the file as the body of a PUT.
+- The upload URL carries a token for this video only, so it needs no key of the API. It works for 24 hours.
+- The video becomes `queued` when the file has arrived, then `processing`, then `ready`.
+
+The answer of `POST /v1/videos` holds the video and two ways to upload its file.
 
 ```json
 {
@@ -384,33 +395,41 @@ curl -s "$DENEB/v1/videos" \
     "ready_at": null
   },
   "upload": {
-    "url": "https://video.example.com/v1/uploads/",
-    "metadata": {
-      "video_id": "vid_7wfd5nhpwadrdxgd7laif6x7ry",
-      "token": "1794049100.m3Qp0ZkS7mWcT9vYbL2xN4aE8rJ1uFgD6iO5tKqVwXs"
+    "url": "https://video.example.com/v1/uploads/vid_7wfd5nhpwadrdxgd7laif6x7ry?token=1794049100.m3Qp0ZkS7mWcT9vYbL2xN4aE8rJ1uFgD6iO5tKqVwXs",
+    "tus": {
+      "endpoint": "https://video.example.com/v1/uploads/",
+      "metadata": {
+        "video_id": "vid_7wfd5nhpwadrdxgd7laif6x7ry",
+        "token": "1794049100.m3Qp0ZkS7mWcT9vYbL2xN4aE8rJ1uFgD6iO5tKqVwXs"
+      }
     },
     "expires_at": "2026-11-07T10:58:20Z"
   }
 }
 ```
 
-Any tus client sends the file. These commands send it with curl.
+A PUT sends the whole file in one request, which a proxy in front of deneb may refuse for a large file. The proxy of Cloudflare, for one, accepts 100 MB. Send larger files with tus.
+
+### Resumable uploads
+
+tus sends a file in parts, and resumes after a lost connection where it stopped. Any tus client works; these commands show the requests with curl.
 
 ```sh
-# The video and the token from the answer above.
+# The video and the token of upload.tus.metadata in the answer above.
 VIDEO_ID=vid_7wfd5nhpwadrdxgd7laif6x7ry
 TOKEN=1794049100.m3Qp0ZkS7mWcT9vYbL2xN4aE8rJ1uFgD6iO5tKqVwXs
 # tus takes each value of the metadata in base64.
 b64() { printf %s "$1" | base64 | tr -d '\n'; }
 
-# Create the upload. deneb answers 201, with the URL of the upload in the Location header.
+# Create the upload at upload.tus.endpoint. deneb answers 201, with the URL of the
+# upload in the Location header: the upload URL of the video, with its token.
 curl -si -X POST "$DENEB/v1/uploads/" \
   -H "Tus-Resumable: 1.0.0" \
   -H "Upload-Length: $(wc -c < clip.mp4 | tr -d ' ')" \
   -H "Upload-Metadata: video_id $(b64 "$VIDEO_ID"),token $(b64 "$TOKEN"),filename $(b64 clip.mp4)"
 
-# Send the file from its start. The URL of the upload ends with the ID of the video.
-curl -X PATCH "$DENEB/v1/uploads/$VIDEO_ID" \
+# Send the file from its start to the URL of the Location header.
+curl -X PATCH "$DENEB/v1/uploads/$VIDEO_ID?token=$TOKEN" \
   -H "Tus-Resumable: 1.0.0" \
   -H "Upload-Offset: 0" \
   -H "Content-Type: application/offset+octet-stream" \
@@ -420,8 +439,6 @@ curl -X PATCH "$DENEB/v1/uploads/$VIDEO_ID" \
 - `Upload-Length` is the size of the file in bytes. tus needs it before the file.
 - `Upload-Metadata` names the video and its token. `filename` is optional, and deneb keeps it with the upload.
 - `Upload-Offset: 0` sends the file from its first byte. After a lost connection, a tus client asks deneb for the offset and sends the rest.
-
-The video becomes `queued` when the last byte arrives, then `processing`, then `ready`.
 
 ### Upload from a browser
 
@@ -433,9 +450,9 @@ The browser then sends the file to deneb itself, and never sees your key.
 import { Upload } from "tus-js-client";
 
 const upload = new Upload(file, {
-  endpoint: created.upload.url,
+  endpoint: created.upload.tus.endpoint,
   // video_id and token name the video; the file name is kept with the upload.
-  metadata: { ...created.upload.metadata, filename: file.name },
+  metadata: { ...created.upload.tus.metadata, filename: file.name },
   // Parts of 64 MiB pass proxies that limit the size of a request.
   chunkSize: 64 * 1024 * 1024,
   onProgress: (sent, total) => console.log(`${Math.floor((sent / total) * 100)}%`),
@@ -444,7 +461,8 @@ const upload = new Upload(file, {
 upload.start();
 ```
 
-The upload URL accepts requests from any origin, so the page can be on another domain than deneb.
+- The upload URLs accept requests from any origin, so the page can be on another domain than deneb.
+- A page can also PUT a small file with `fetch(created.upload.url, { method: "PUT", body: file })`. tus suits large files, since it resumes them.
 
 ### Videos
 

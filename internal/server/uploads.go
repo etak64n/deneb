@@ -2,10 +2,15 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/etak64n/deneb/internal/store"
 	"github.com/tus/tusd/v2/pkg/filestore"
@@ -87,4 +92,155 @@ func (s *Server) uploadFinished(hook handler.HookEvent) (handler.HTTPResponse, e
 	}
 	s.log.Info("received the file of a video", "video", videoID, "bytes", hook.Upload.Size)
 	return handler.HTTPResponse{}, nil
+}
+
+// guardUploads checks the upload token on every request about the upload of a video,
+// /v1/uploads/<video>?token=..., and takes the whole file there in one PUT. A tus
+// client creates an upload with the token in its metadata, which checkUpload checks,
+// and gets back the URL of the upload with the token, which it sends from then on. A
+// video ID alone, which playback URLs show, is then not enough to touch an upload.
+func (s *Server) guardUploads(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v1/uploads"), "/")
+		if id == "" {
+			if r.Method == http.MethodPost {
+				w = &tokenLocation{ResponseWriter: w, token: uploadToken(r.Header.Get("Upload-Metadata"))}
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.Method == http.MethodOptions {
+			if r.Header.Get("Access-Control-Request-Method") != http.MethodPut {
+				next.ServeHTTP(w, r)
+				return
+			}
+			allowPut(w)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method == http.MethodPut {
+			allowPut(w)
+		}
+		if !s.app.VerifyUploadToken(id, r.URL.Query().Get("token")) {
+			writeError(w, http.StatusUnauthorized, "the upload URL is invalid or expired; POST /v1/videos returns a new one")
+			return
+		}
+		if r.Method == http.MethodPut {
+			s.putUpload(w, r, id)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// allowPut lets pages of any site send a file to an upload URL, which its token guards.
+func allowPut(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "PUT")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Max-Age", "86400")
+}
+
+// uploadToken reads the token from the Upload-Metadata header of tus, whose pairs
+// are a key and a value in base64.
+func uploadToken(metadata string) string {
+	for _, pair := range strings.Split(metadata, ",") {
+		key, value, _ := strings.Cut(strings.TrimSpace(pair), " ")
+		if key != "token" {
+			continue
+		}
+		decoded, err := base64.StdEncoding.DecodeString(value)
+		if err != nil {
+			return ""
+		}
+		return string(decoded)
+	}
+	return ""
+}
+
+// tokenLocation adds the upload token to the URL of a new tus upload, which tusd
+// builds from the ID alone.
+type tokenLocation struct {
+	http.ResponseWriter
+	token string
+}
+
+func (t *tokenLocation) WriteHeader(status int) {
+	if location := t.Header().Get("Location"); status == http.StatusCreated && location != "" && t.token != "" {
+		t.Header().Set("Location", location+"?token="+url.QueryEscape(t.token))
+	}
+	t.ResponseWriter.WriteHeader(status)
+}
+
+func (t *tokenLocation) Unwrap() http.ResponseWriter { return t.ResponseWriter }
+
+// putUpload stores the whole file of a video from the body of one request, then
+// queues the video as a finished tus upload does.
+func (s *Server) putUpload(w http.ResponseWriter, r *http.Request, id string) {
+	video, err := s.app.Store().Video(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "the video does not exist")
+		return
+	}
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if video.Status != store.VideoWaiting {
+		writeError(w, http.StatusConflict, "the video already has its file")
+		return
+	}
+	limit := s.app.Config().MaxUploadSize
+	tooLarge := fmt.Sprintf("the file is larger than the %d GB that DENEB_MAX_UPLOAD_GB allows", limit/1_000_000_000)
+	if r.ContentLength > limit {
+		writeError(w, http.StatusRequestEntityTooLarge, tooLarge)
+		return
+	}
+	// An unfinished tus upload of the video gives way to this one.
+	s.app.RemoveUpload(id)
+	path := s.app.UploadPath(id)
+	// The file arrives under another name, so that a stopped request leaves no file
+	// where the encoder looks.
+	file, err := os.CreateTemp(filepath.Dir(path), id+".*.part")
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	size, copyErr := io.Copy(file, http.MaxBytesReader(w, r.Body, limit))
+	closeErr := file.Close()
+	if copyErr != nil || closeErr != nil || size == 0 {
+		os.Remove(file.Name())
+		var maxBytes *http.MaxBytesError
+		switch {
+		case errors.As(copyErr, &maxBytes):
+			writeError(w, http.StatusRequestEntityTooLarge, tooLarge)
+		case size == 0 && copyErr == nil && closeErr == nil:
+			writeError(w, http.StatusBadRequest, "the request has no file; send it as the body")
+		default:
+			s.log.Warn("receive the file of a video", "video", id, "error", errors.Join(copyErr, closeErr))
+			writeError(w, http.StatusBadRequest, "the file stopped before its end")
+		}
+		return
+	}
+	if err := os.Rename(file.Name(), path); err != nil {
+		os.Remove(file.Name())
+		s.fail(w, err)
+		return
+	}
+	ctx := context.WithoutCancel(r.Context())
+	if err := s.app.UploadFinished(ctx, id, size); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			s.app.RemoveUpload(id)
+			writeError(w, http.StatusConflict, "the video was deleted, or has its file already")
+			return
+		}
+		s.fail(w, err)
+		return
+	}
+	s.log.Info("received the file of a video", "video", id, "bytes", size)
+	if video, err = s.app.Store().Video(ctx, id); err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"video": s.app.View(video, s.baseURL(r))})
 }

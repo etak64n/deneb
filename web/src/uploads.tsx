@@ -102,8 +102,8 @@ export function UploadsProvider({ children }: { children: ReactNode }) {
             return;
           }
           entry.tus = new TusUpload(entry.file, {
-            endpoint: upload.url,
-            metadata: { ...upload.metadata, filename: entry.file.name, filetype: entry.file.type },
+            endpoint: upload.tus.endpoint,
+            metadata: { ...upload.tus.metadata, filename: entry.file.name, filetype: entry.file.type },
             chunkSize: 64 * 1024 * 1024,
             retryDelays: [0, 1000, 3000, 5000, 10000],
             // An upload resumes within this tab; nothing looks for it after a reload.

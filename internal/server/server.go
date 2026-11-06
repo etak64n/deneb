@@ -61,8 +61,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /auth/logout", s.logout)
 
 	uploads := s.uploadURLs(s.tus)
-	s.mux.Handle("/v1/uploads/", http.StripPrefix("/v1/uploads/", uploads))
-	s.mux.Handle("/v1/uploads", http.StripPrefix("/v1/uploads", uploads))
+	s.mux.Handle("/v1/uploads/", s.guardUploads(http.StripPrefix("/v1/uploads/", uploads)))
+	s.mux.Handle("/v1/uploads", s.guardUploads(http.StripPrefix("/v1/uploads", uploads)))
 
 	s.mux.HandleFunc("GET /v1/videos", s.api(s.listVideos, false))
 	s.mux.HandleFunc("POST /v1/videos", s.api(s.createVideo, false))
