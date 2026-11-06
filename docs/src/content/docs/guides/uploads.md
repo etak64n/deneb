@@ -8,11 +8,11 @@ This page sends the file in three ways: in one PUT, with tus, which resumes afte
 
 ## Before you start
 
-A request to the API carries a key in the Authorization header. The API keys page of the dashboard creates keys, and shows each new key once.
+The examples on this page send their requests to deneb at https://video.example.com. Replace it with the address of your deneb.
+A request to the API also carries a key in the Authorization header. The API keys page of the dashboard creates keys, and shows each new key once.
 
 ```sh
-# The address of deneb, and a key from its API keys page. The examples below use both.
-DENEB=https://video.example.com
+# A key from the API keys page of the dashboard. The examples below send it.
 KEY=dnb_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
@@ -22,7 +22,7 @@ These commands create a video, and send its file to its upload URL.
 
 ```sh
 # Create a video, and keep the URL where its file goes.
-UPLOAD_URL=$(curl -s "$DENEB/v1/videos" \
+UPLOAD_URL=$(curl -s https://video.example.com/v1/videos \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
   -d '{"title": "Product tour"}' | jq -r .upload.url)
@@ -85,13 +85,13 @@ b64() { printf %s "$1" | base64 | tr -d '\n'; }
 
 # Create the upload at upload.tus.endpoint. deneb answers 201, with the URL of the
 # upload in the Location header: the upload URL of the video, with its token.
-curl -si -X POST "$DENEB/v1/uploads/" \
+curl -si -X POST https://video.example.com/v1/uploads/ \
   -H "Tus-Resumable: 1.0.0" \
   -H "Upload-Length: $(wc -c < clip.mp4 | tr -d ' ')" \
   -H "Upload-Metadata: video_id $(b64 "$VIDEO_ID"),token $(b64 "$TOKEN"),filename $(b64 clip.mp4)"
 
 # Send the file from its start to the URL of the Location header.
-curl -X PATCH "$DENEB/v1/uploads/$VIDEO_ID?token=$TOKEN" \
+curl -X PATCH "https://video.example.com/v1/uploads/$VIDEO_ID?token=$TOKEN" \
   -H "Tus-Resumable: 1.0.0" \
   -H "Upload-Offset: 0" \
   -H "Content-Type: application/offset+octet-stream" \

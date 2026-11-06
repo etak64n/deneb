@@ -11,8 +11,8 @@ This page adds an endpoint, describes the events and their delivery, and verifie
 The webhooks page of the dashboard adds an endpoint, and so does the API.
 
 ```sh
-# Add an endpoint. DENEB is the address of deneb, and KEY a key of its API.
-curl -s "$DENEB/v1/webhooks" \
+# Add an endpoint to deneb at https://video.example.com. KEY is a key of the API.
+curl -s https://video.example.com/v1/webhooks \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com/hooks/deneb"}'

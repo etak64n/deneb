@@ -11,8 +11,8 @@ This page gets the URLs, explains how long they last, and embeds a video.
 Every playback URL expires, so your app asks deneb for the video when it shows it, and uses the URLs of that answer.
 
 ```sh
-# The playback URLs of a video. DENEB is the address of deneb, and KEY a key of its API.
-curl -s "$DENEB/v1/videos/vid_7wfd5nhpwadrdxgd7laif6x7ry" \
+# The playback URLs of a video, from deneb at https://video.example.com. KEY is a key of the API.
+curl -s https://video.example.com/v1/videos/vid_7wfd5nhpwadrdxgd7laif6x7ry \
   -H "Authorization: Bearer $KEY" | jq .video.playback
 ```
 

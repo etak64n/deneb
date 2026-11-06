@@ -4,18 +4,17 @@ description: The authentication, the errors, the endpoints, and the video object
 ---
 
 The API takes and returns JSON under `/v1`.
-This page lists its authentication, its errors, its endpoints, and the video object.
+This page lists its authentication, its errors, its endpoints, and the video object. Its examples use https://video.example.com as the address of deneb.
 
 ## Authentication
 
 A request carries a key of the API in the Authorization header, as `Bearer <key>`. The API keys page of the dashboard creates keys.
 
 ```sh
-# The address of deneb, and a key from its API keys page.
-DENEB=https://video.example.com
+# A key from the API keys page of the dashboard.
 KEY=dnb_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 # A request with the key: the newest videos.
-curl -s "$DENEB/v1/videos" -H "Authorization: Bearer $KEY"
+curl -s https://video.example.com/v1/videos -H "Authorization: Bearer $KEY"
 ```
 
 The upload URLs and the playback URLs carry tokens of their own, so they need no key.

@@ -230,7 +230,8 @@ console.log("Create a video");
 await call("caption", "Create a video, and get the URL for its file");
 await call(
   "type",
-  `UPLOAD_URL=$(curl -s -X POST $DENEB/v1/videos \\\n    -H "Authorization: Bearer $KEY" \\\n    -d '{"title": "Welcome to deneb"}' | jq -r .upload.url)`,
+  // The address of deneb itself rather than a variable, which the recording could not explain.
+  `UPLOAD_URL=$(curl -s -X POST ${deneb}/v1/videos \\\n    -H "Authorization: Bearer $KEY" \\\n    -d '{"title": "Welcome to deneb"}' | jq -r .upload.url)`,
 );
 const created = await api("POST", "/v1/videos", { title: "Welcome to deneb" });
 const id = created.video.id;
@@ -284,7 +285,8 @@ await pause(1200);
 
 console.log("Get the playback URLs");
 await call("caption", "Get the URLs that deneb signed");
-await call("type", `curl -s $DENEB/v1/videos/${id} \\\n    -H "Authorization: Bearer $KEY" \\\n    | jq '.video | {status, captions, embed_url: .playback.embed_url}'`);
+// The key comes first, so that the address and the ID of the video fit on one line.
+await call("type", `curl -s -H "Authorization: Bearer $KEY" \\\n    ${deneb}/v1/videos/${id} \\\n    | jq '.video | {status, captions, embed_url: .playback.embed_url}'`);
 const ready = (await api("GET", `/v1/videos/${id}`)).video;
 await pause(300);
 await call("print", highlight({ status: ready.status, captions: ready.captions, embed_url: ready.playback.embed_url }));
