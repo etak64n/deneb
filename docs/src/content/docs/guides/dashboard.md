@@ -14,6 +14,7 @@ deneb writes the setup code to its log until the administrator exists (internal/
 ## Pages
 
 - The videos page lists every video with its state, and uploads the files that you choose or drop on the page. It uploads three files at a time, in parts of 64 MiB, and resumes them after a lost connection.
+- An upload goes on when the session ends by itself, as after 30 days, since it sends its file with the token of its video. Logging out stops the uploads of the tab.
 - The page of a video plays it, and shows its details, its playback URL, its embed code, and its qualities. It renames and deletes the video, and switches its URLs between expiring and permanent. Retry runs again an encoding or captions that failed.
 - The API keys page creates and revokes keys. A new key appears once.
 - The webhooks page adds and deletes endpoints, and shows the deliveries of each. A new signing secret appears once.

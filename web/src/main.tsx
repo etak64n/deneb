@@ -17,6 +17,10 @@ import { UploadsProvider } from "./uploads.tsx";
 function App() {
   const [state, setState] = useState<AuthState | null>(null);
   const [error, setError] = useState("");
+  // The uploads outlive the sign-in page: a session that ends by itself, as after 30
+  // days, keeps them, since they send their files with the tokens of their videos.
+  // Logging out starts them afresh, which stops those of the tab.
+  const [uploadsEpoch, setUploadsEpoch] = useState(0);
 
   // Resolves to whether someone is signed in.
   const load = useCallback(
@@ -39,21 +43,21 @@ function App() {
     onSignedOut(() => void load());
   }, [load]);
 
+  let content: ReactNode = null;
   if (error) {
-    return (
+    content = (
       <main className="mx-auto max-w-md p-6">
         <ErrorBox>{error}</ErrorBox>
       </main>
     );
-  }
-  if (state === null) return null;
-  if (state.user === null) return <AuthPage setup={state.setup_required} onSignedIn={load} />;
-
-  return (
-    <UploadsProvider>
+  } else if (state?.user === null) {
+    content = <AuthPage setup={state.setup_required} onSignedIn={load} />;
+  } else if (state !== null) {
+    content = (
       <Shell
         user={state.user}
         onLogout={() => {
+          setUploadsEpoch((epoch) => epoch + 1);
           void api.logout().finally(() => {
             navigate("/");
             void load();
@@ -64,8 +68,9 @@ function App() {
           <Routes captions={state.captions} />
         </PageBoundary>
       </Shell>
-    </UploadsProvider>
-  );
+    );
+  }
+  return <UploadsProvider key={uploadsEpoch}>{content}</UploadsProvider>;
 }
 
 function Routes({ captions }: { captions: boolean }) {

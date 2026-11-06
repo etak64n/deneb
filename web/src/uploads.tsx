@@ -208,7 +208,7 @@ export function UploadsProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [busy]);
 
-  // Logging out stops the uploads of the session that ends.
+  // Logging out, which starts the provider afresh, stops the uploads of the tab.
   useEffect(() => {
     const all = entries.current;
     const pending = timers.current;
