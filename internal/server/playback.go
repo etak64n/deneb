@@ -2,8 +2,12 @@ package server
 
 import (
 	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
 	"path"
+	"strings"
 
 	"github.com/etak64n/deneb/internal/app"
 	"github.com/etak64n/deneb/internal/store"
@@ -42,6 +46,10 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if name == "storyboard.vtt" {
+		s.storyboard(w, r, id, token, key)
+		return
+	}
 	cache := "public, max-age=60"
 	if ext := path.Ext(name); ext == ".ts" || ext == ".jpg" {
 		cache = "public, max-age=86400"
@@ -77,6 +85,26 @@ func (c *cacheOnSuccess) Write(data []byte) (int, error) {
 }
 
 func (c *cacheOnSuccess) Unwrap() http.ResponseWriter { return c.ResponseWriter }
+
+// storyboard serves the storyboard with the URL of its picture made absolute. Players
+// resolve a relative URL in it against the page that plays the video, rather than
+// against the storyboard, which would point the embed page and the dashboard elsewhere.
+func (s *Server) storyboard(w http.ResponseWriter, r *http.Request, id, token, key string) {
+	data, err := s.app.Storage().ReadFile(r.Context(), key)
+	if errors.Is(err, fs.ErrNotExist) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		s.log.Error("read a storyboard", "video", id, "error", err)
+		http.Error(w, "could not reach the storage", http.StatusBadGateway)
+		return
+	}
+	sheet := fmt.Sprintf("%s/play/%s/%s/storyboard.jpg#", s.baseURL(r), id, token)
+	w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=60")
+	io.WriteString(w, strings.ReplaceAll(string(data), "\nstoryboard.jpg#", "\n"+sheet))
+}
 
 // playInfo tells the embed page the title of the video and whether it has captions.
 func (s *Server) playInfo(w http.ResponseWriter, r *http.Request, id string) {

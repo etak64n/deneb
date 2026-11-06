@@ -75,6 +75,14 @@ func (l *Local) LocalFile(ctx context.Context, key, dir string) (string, func(),
 	return target, func() {}, nil
 }
 
+func (l *Local) ReadFile(ctx context.Context, key string) ([]byte, error) {
+	target, err := l.path(key)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", key, fs.ErrNotExist)
+	}
+	return os.ReadFile(target)
+}
+
 func (l *Local) Serve(w http.ResponseWriter, r *http.Request, key string) {
 	target, err := l.path(key)
 	if err != nil {

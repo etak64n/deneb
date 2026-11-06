@@ -535,6 +535,7 @@ func TestPlayback(t *testing.T) {
 		"hls/master.m3u8":   "#EXTM3U\nindex_720p.m3u8\n",
 		"hls/720p_00000.ts": "segment",
 		"poster.jpg":        "jpeg",
+		"storyboard.vtt":    "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nstoryboard.jpg#xywh=0,0,160,90\n",
 	} {
 		local := filepath.Join(t.TempDir(), "file")
 		os.WriteFile(local, []byte(content), 0o644)
@@ -564,6 +565,12 @@ func TestPlayback(t *testing.T) {
 	if r := h.do("GET", root+"poster.jpg", nil); r.status != http.StatusOK || r.header.Get("Content-Type") != "image/jpeg" ||
 		r.header.Get("Cache-Control") != "public, max-age=86400" {
 		t.Errorf("poster: %d %v", r.status, r.header)
+	}
+	// The picture of the storyboard has an absolute URL, which players resolve the same
+	// from any page.
+	if r := h.do("GET", root+"storyboard.vtt", nil); r.status != http.StatusOK ||
+		!strings.Contains(string(r.body), "\n"+h.url+root+"storyboard.jpg#xywh=0,0,160,90\n") {
+		t.Errorf("storyboard: %d %q", r.status, r.body)
 	}
 	// Caches keep files, never errors.
 	if r := h.do("GET", root+"hls/720p_00009.ts", nil); r.status != http.StatusNotFound || r.header.Get("Cache-Control") != "no-store" {

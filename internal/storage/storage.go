@@ -24,6 +24,9 @@ type Storage interface {
 	// subtitles always come from deneb itself, so that the relative URLs inside them
 	// keep pointing at deneb.
 	Serve(w http.ResponseWriter, r *http.Request, key string)
+	// ReadFile returns a small object, such as a WebVTT file, or an error that wraps
+	// fs.ErrNotExist when there is none.
+	ReadFile(ctx context.Context, key string) ([]byte, error)
 	// DeletePrefix removes every object whose key starts with the prefix.
 	DeletePrefix(ctx context.Context, prefix string) error
 }

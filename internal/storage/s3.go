@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -121,6 +122,22 @@ func (s *S3) LocalFile(ctx context.Context, key, dir string) (string, func(), er
 		return "", nil, fmt.Errorf("download %s: %w", key, err)
 	}
 	return target, func() { os.Remove(target) }, nil
+}
+
+// maxReadFile is the largest object that ReadFile reads, far above any WebVTT file of deneb.
+const maxReadFile = 16 << 20
+
+func (s *S3) ReadFile(ctx context.Context, key string) ([]byte, error) {
+	object, err := s.client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)})
+	if err != nil {
+		var missing *types.NoSuchKey
+		if errors.As(err, &missing) {
+			return nil, fmt.Errorf("%s: %w", key, fs.ErrNotExist)
+		}
+		return nil, fmt.Errorf("read %s: %w", key, err)
+	}
+	defer object.Body.Close()
+	return io.ReadAll(io.LimitReader(object.Body, maxReadFile))
 }
 
 // Serve sends a file of the bucket through deneb, with ranges. With Redirects, it
