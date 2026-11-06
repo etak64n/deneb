@@ -1,7 +1,7 @@
 // Records a short demo of the API of a running deneb, in a page with a terminal on the
 // left and a site on the right. The terminal creates a video with curl, sends its file
-// over tus, follows the encoding, receives the signed webhooks, and gets the signed
-// URLs; the site then embeds the video, which plays with its captions. Every request,
+// to its upload URL in one PUT, follows the encoding, receives the signed webhooks, and
+// gets the signed URLs; the site then embeds the video, which plays with its captions. Every request,
 // answer, and webhook is real; the terminal shows the answers filtered as its jq says.
 // It writes the recording as demo.webm.
 //
@@ -227,42 +227,27 @@ await call("card", null);
 await pause(500);
 
 console.log("Create a video");
-await call("caption", "1  Create a video with the API");
+await call("caption", "1  Create a video, and get the URL for its file");
 await call(
   "type",
-  `curl -s -X POST $DENEB/v1/videos \\\n    -H "Authorization: Bearer $KEY" \\\n    -d '{"title": "Welcome to deneb"}' \\\n    | jq '{id: .video.id, status: .video.status, upload: .upload.url}'`,
+  `UPLOAD_URL=$(curl -s -X POST $DENEB/v1/videos \\\n    -H "Authorization: Bearer $KEY" \\\n    -d '{"title": "Welcome to deneb"}' | jq -r .upload.url)`,
 );
 const created = await api("POST", "/v1/videos", { title: "Welcome to deneb" });
 const id = created.video.id;
 await pause(300);
-await call("print", highlight({ id, status: created.video.status, upload: created.upload.url }));
+await call("type", "echo $UPLOAD_URL");
+await call("print", `<span class="string">${created.upload.url}</span>`);
 await pause(1600);
 
-console.log("Upload the file over tus");
-await call("caption", "2  Upload the file, which resumes if the connection drops");
-await call("type", "# upload welcome.mp4, resumable if the connection drops", "comment");
-const metadata = Object.entries({ ...created.upload.metadata, filename: "welcome.mp4" })
-  .map(([name, value]) => `${name} ${Buffer.from(value).toString("base64")}`)
-  .join(",");
-const upload = await fetch(created.upload.url, {
-  method: "POST",
-  headers: { "Tus-Resumable": "1.0.0", "Upload-Length": String(clip.length), "Upload-Metadata": metadata },
-});
-if (upload.status !== 201) throw new Error(`create the upload: ${upload.status}`);
-const sent = fetch(upload.headers.get("location"), {
-  method: "PATCH",
-  headers: { "Tus-Resumable": "1.0.0", "Upload-Offset": "0", "Content-Type": "application/offset+octet-stream" },
-  body: clip,
-});
-const size = `${Math.round(clip.length / 1000)} KB`;
-for (let filled = 0; filled <= 24; filled += 3) {
-  await call("print", `<span class="dim">↑</span> welcome.mp4  <span class="ok">${"█".repeat(filled)}</span><span class="dim">${"░".repeat(24 - filled)}</span>  ${size}`, "upload");
-  await pause(90);
-}
-const patched = await sent;
-if (patched.status !== 204) throw new Error(`send the file: ${patched.status}`);
-await call("print", `<span class="ok">↑</span> welcome.mp4  <span class="ok">${"█".repeat(24)}</span>  ${size}  <span class="ok">uploaded</span>`, "upload");
-await pause(1200);
+console.log("Send the file in one PUT");
+await call("caption", "2  Send the file to that URL in one PUT");
+await call("type", `curl -T welcome.mp4 "$UPLOAD_URL" | jq '.video | {id, status}'`);
+const put = await fetch(created.upload.url, { method: "PUT", body: clip });
+if (put.status !== 200) throw new Error(`send the file: ${put.status} ${await put.text()}`);
+const uploaded = (await put.json()).video;
+await pause(300);
+await call("print", highlight({ id: uploaded.id, status: uploaded.status }));
+await pause(1600);
 
 console.log("Follow the encoding and the webhooks");
 await call("caption", "3  deneb encodes it, writes captions, and calls your webhook");
@@ -299,7 +284,7 @@ await pause(1200);
 
 console.log("Get the playback URLs");
 await call("caption", "4  Get the URLs that deneb signed");
-await call("type", `curl -s $DENEB/v1/videos/$ID \\\n    -H "Authorization: Bearer $KEY" \\\n    | jq '.video | {status, captions, embed_url: .playback.embed_url}'`);
+await call("type", `curl -s $DENEB/v1/videos/${id} \\\n    -H "Authorization: Bearer $KEY" \\\n    | jq '.video | {status, captions, embed_url: .playback.embed_url}'`);
 const ready = (await api("GET", `/v1/videos/${id}`)).video;
 await pause(300);
 await call("print", highlight({ status: ready.status, captions: ready.captions, embed_url: ready.playback.embed_url }));
