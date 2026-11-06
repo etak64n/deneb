@@ -1,11 +1,16 @@
+# deneb behind a reverse proxy that serves https://video.example.com with TLS and
+# forwards to port 8080 of this host. Replace the address with your own.
 services:
   deneb:
-    image: ghcr.io/etak64n/deneb:latest
+    # 0.1 follows the fixes of 0.1; latest follows every release.
+    image: ghcr.io/etak64n/deneb:0.1
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      # Only the proxy on this host reaches deneb, so the X-Forwarded-For it sets can be trusted.
+      - "127.0.0.1:8080:8080"
     environment:
       DENEB_PUBLIC_URL: https://video.example.com
+      DENEB_TRUST_PROXY: "true"
       DENEB_CAPTIONS: "true"
     volumes:
       - deneb-data:/data
