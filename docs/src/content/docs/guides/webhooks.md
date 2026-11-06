@@ -21,15 +21,14 @@ curl -s https://video.example.com/v1/webhooks \
 - The `url` starts with http:// or https://.
 - The answer is 201 with `webhook`, whose `secret` appears only in this answer. Your endpoint checks the signature of each event with it.
 
-## Private and local networks
+## Addresses that webhooks do not reach
 
-deneb sends webhooks only to addresses on the internet, unless `DENEB_WEBHOOK_ALLOW_NETWORKS` lists the network of the endpoint.
-Without that rule, a key of the API could make deneb send requests into the network that deneb runs in.
+Webhooks reach any address but the metadata services of clouds, which give out the credentials of the server that asks them.
+Without that rule, a key of the API could make deneb fetch them.
 
-- The networks that need the setting are loopback, private (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, and fc00::/7), link-local, and 100.64.0.0/10.
-- deneb checks the address that the name of the endpoint resolves to, at each delivery (internal/app/egress.go). A URL that shows such an address, or localhost, fails when you add it.
-- A receiver on the same host, or in the same Docker network, needs its network listed, such as `DENEB_WEBHOOK_ALLOW_NETWORKS: 172.16.0.0/12` in compose.yaml.
-- deneb sends webhooks through no proxy, since it could then check the address of the proxy alone.
+- The addresses are the link-local ones, 169.254.0.0/16 and fe80::/10, among them 169.254.169.254, and two outside them: fd00:ec2::254 and 100.100.100.200.
+- deneb checks the address that the name of the endpoint resolves to, at each delivery (internal/app/egress.go). A URL that shows such an address fails when you add it.
+- Private networks stay open, so that a receiver on the same host, or in the same Docker network, needs no setting.
 
 ## Events
 
@@ -67,7 +66,7 @@ The request of an event carries these headers.
 - An answer from 200 to 299 within 15 seconds counts as delivered. deneb follows no redirects, since a redirect turns a POST into a GET without its body.
 - A delivery that fails runs again after 1 minute, 5 minutes, 30 minutes, 2 hours, and 6 hours, six attempts in all.
 - deneb keeps the deliveries for 30 days. The webhooks page of the dashboard and `GET /v1/webhooks/{id}/deliveries` show the latest 50 of each endpoint.
-- `last_error` says why an attempt failed in words of deneb: the endpoint could not be reached, did not answer within 15 seconds, answered a status other than 2xx, or is in a network that is not allowed. It never repeats what the endpoint sent. The log of deneb holds the error itself.
+- `last_error` says why an attempt failed in words of deneb: the endpoint could not be reached, did not answer within 15 seconds, answered a status other than 2xx, or is at an address that webhooks do not reach. It never repeats what the endpoint sent. The log of deneb holds the error itself.
 
 ## Verify a signature
 

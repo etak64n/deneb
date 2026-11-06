@@ -238,13 +238,8 @@ func (a *App) CreateWebhook(ctx context.Context, endpoint string) (store.Webhook
 	if len(endpoint) > maxWebhookURL {
 		return store.Webhook{}, fmt.Errorf("the URL can be at most %d characters", maxWebhookURL)
 	}
-	host := parsed.Hostname()
-	addr, err := netip.ParseAddr(host)
-	if err != nil && (host == "localhost" || strings.HasSuffix(host, ".localhost")) {
-		addr, err = netip.MustParseAddr("127.0.0.1"), nil
-	}
-	if err == nil && !webhookAllowed(addr, a.cfg.WebhookAllowNetworks) {
-		return store.Webhook{}, fmt.Errorf("the URL points to %s, in a private or local network; DENEB_WEBHOOK_ALLOW_NETWORKS lists the networks that webhooks may reach", host)
+	if addr, err := netip.ParseAddr(parsed.Hostname()); err == nil && blockedAddress(addr) {
+		return store.Webhook{}, fmt.Errorf("the URL points to %s, a link-local address, where the metadata services of clouds answer, which webhooks may not reach", addr)
 	}
 	return a.store.CreateWebhook(ctx, NewID("wh"), endpoint, "whsec_"+randomString(24), a.now())
 }

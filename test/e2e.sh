@@ -92,11 +92,8 @@ case $storage in
 esac
 
 echo "Start deneb with $storage storage"
-# The receiver of the webhooks listens on the host, at a private address that deneb
-# sends webhooks to only when DENEB_WEBHOOK_ALLOW_NETWORKS lists it.
 docker run -d --name "$container" "${run[@]}" --add-host=host.docker.internal:host-gateway \
   -e DENEB_CAPTIONS=true -e DENEB_CAPTIONS_MODEL=tiny -e DENEB_CAPTIONS_LANGUAGE=en \
-  -e DENEB_WEBHOOK_ALLOW_NETWORKS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 \
   "$image" >/dev/null
 for _ in $(seq 60); do
   curl -fsS "$base/healthz" >/dev/null 2>&1 && break

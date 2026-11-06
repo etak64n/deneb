@@ -43,7 +43,7 @@ type App struct {
 	log     *slog.Logger
 	now     func() time.Time
 
-	// client sends the webhooks, to the addresses that newWebhookClient allows.
+	// client sends the webhooks, except to the addresses that blockedAddress names.
 	client *http.Client
 
 	wakeMu sync.Mutex
@@ -86,7 +86,7 @@ func New(ctx context.Context, cfg config.Config, db *store.Store, files storage.
 	a := &App{
 		cfg: cfg, store: db, storage: files, secret: []byte(secret), log: log,
 		now:     func() time.Time { return time.Now().UTC() },
-		client:  newWebhookClient(cfg.WebhookAllowNetworks),
+		client:  newWebhookClient(),
 		running: map[int64]runningJob{},
 		hashing: make(chan struct{}, 2),
 	}

@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -13,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/etak64n/deneb/internal/config"
 	"github.com/etak64n/deneb/internal/media"
 	"github.com/etak64n/deneb/internal/store"
 )
@@ -157,67 +154,48 @@ func TestRoomForUpload(t *testing.T) {
 	}
 }
 
-func TestWebhookAddresses(t *testing.T) {
+func TestBlockedAddresses(t *testing.T) {
 	for _, tc := range []struct {
-		addr     string
-		internal bool
+		addr    string
+		blocked bool
 	}{
-		{"93.184.216.34", false}, {"2606:4700:4700::1111", false},
-		{"127.0.0.1", true}, {"::1", true}, {"10.1.2.3", true}, {"172.17.0.1", true}, {"192.168.1.10", true},
-		{"169.254.169.254", true}, {"fe80::1", true}, {"fc00::1", true}, {"100.64.0.1", true},
-		{"0.0.0.0", true}, {"0.1.2.3", true}, {"224.0.0.1", true}, {"::ffff:10.0.0.1", true},
+		{"169.254.169.254", true}, {"169.254.0.1", true}, {"fe80::1", true}, {"fe80::1%eth0", true},
+		{"fd00:ec2::254", true}, {"100.100.100.200", true}, {"::ffff:169.254.169.254", true},
+		{"127.0.0.1", false}, {"10.0.0.5", false}, {"172.17.0.1", false}, {"192.168.1.10", false},
+		{"100.64.0.1", false}, {"fd00::1", false}, {"93.184.216.34", false},
 	} {
-		if got := internalAddress(netip.MustParseAddr(tc.addr)); got != tc.internal {
-			t.Errorf("internalAddress(%s) = %v, want %v", tc.addr, got, tc.internal)
+		if got := blockedAddress(netip.MustParseAddr(tc.addr)); got != tc.blocked {
+			t.Errorf("blockedAddress(%s) = %v, want %v", tc.addr, got, tc.blocked)
 		}
-	}
-	allow := []netip.Prefix{netip.MustParsePrefix("172.16.0.0/12")}
-	if !webhookAllowed(netip.MustParseAddr("172.17.0.1"), allow) || webhookAllowed(netip.MustParseAddr("10.0.0.5"), allow) {
-		t.Error("the allowed networks are not the ones listed")
 	}
 }
 
-// Webhooks reach no private or local address that the configuration does not list:
-// neither one in the URL, nor one that the name of the host resolves to.
-func TestWebhooksStayOutOfPrivateNetworks(t *testing.T) {
+// Webhooks reach private networks, where their receivers often run, but not the
+// metadata services of clouds: neither an address of one in the URL, nor one that the
+// name of the host resolves to, which the client refuses when it connects.
+func TestWebhooksStayOffMetadataServices(t *testing.T) {
 	ctx := context.Background()
-	a := newAppWith(t, func(cfg *config.Config) { cfg.WebhookAllowNetworks = nil })
-	for _, url := range []string{"http://10.0.0.5/hook", "http://[::1]:8080/hook", "http://localhost:9000/hook", "ftp://example.com/hook"} {
+	a := newApp(t)
+	for _, url := range []string{"http://169.254.169.254/latest/meta-data/", "http://[fe80::1]/hook", "http://[fd00:ec2::254]/latest/meta-data/", "ftp://example.com/hook"} {
 		if _, err := a.CreateWebhook(ctx, url); err == nil {
 			t.Errorf("CreateWebhook(%s) succeeded", url)
 		}
 	}
-	public, err := a.CreateWebhook(ctx, "https://hooks.example.com/deneb")
-	if err != nil {
-		t.Errorf("a public name: %v", err)
+	for _, url := range []string{"http://10.0.0.5/hook", "http://127.0.0.1:9000/hook", "http://app:3000/hooks/deneb"} {
+		hook, err := a.CreateWebhook(ctx, url)
+		if err != nil {
+			t.Errorf("CreateWebhook(%s): %v", url, err)
+			continue
+		}
+		a.store.DeleteWebhook(ctx, hook.ID)
 	}
-	// No delivery of this test goes out to the internet.
-	a.store.DeleteWebhook(ctx, public.ID)
 
-	reached := make(chan struct{}, 1)
-	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reached <- struct{}{}
-	}))
-	defer receiver.Close()
-	// The store takes the URL as it is, as it would a name that resolves to the loopback.
-	hook, err := a.store.CreateWebhook(ctx, NewID("wh"), receiver.URL+"/hook", "whsec_test", a.now())
-	if err != nil {
-		t.Fatal(err)
+	_, err := a.client.Get("http://169.254.169.254/latest/meta-data/")
+	var blocked blockedAddressError
+	if !errors.As(err, &blocked) {
+		t.Fatalf("a request to the metadata service: %v", err)
 	}
-	a.store.CreateVideo(ctx, "vid_a", "Talk", a.now())
-	a.emit(ctx, EventVideoReady, "vid_a")
-	runWorkers(t, a)
-	waitFor(t, "the delivery to fail", func() bool {
-		deliveries, _ := a.store.ListDeliveries(ctx, hook.ID, 10)
-		return len(deliveries) == 1 && deliveries[0].LastError != ""
-	})
-	deliveries, _ := a.store.ListDeliveries(ctx, hook.ID, 10)
-	if !strings.Contains(deliveries[0].LastError, "private or local network") || strings.Contains(deliveries[0].LastError, "127.0.0.1") {
-		t.Errorf("last error %q", deliveries[0].LastError)
-	}
-	select {
-	case <-reached:
-		t.Error("a webhook reached the loopback")
-	default:
+	if reason := deliveryError(err); reason != blocked.Error() || strings.Contains(reason, "169.254") {
+		t.Errorf("the reason of the delivery %q", reason)
 	}
 }

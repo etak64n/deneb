@@ -35,6 +35,6 @@ A video goes through six steps.
 - whisper.cpp in the image comes with its code for each level of the instructions of the architecture, and loads the one that its CPU runs (Dockerfile). The captions then work on any CPU of the architecture, and as fast as each allows.
 - A job that fails for a reason that may pass runs again for about seven hours, and the file of a video that still fails stays for a week (internal/app/jobs.go). A long outage then costs no upload, and a retry needs no new one.
 - A stop of deneb puts the jobs that ran back in the queue, without counting them as attempts. A crash counts, so that a job that brings deneb down every time fails in the end.
-- Webhooks reach only addresses on the internet, unless a setting lists a private network (internal/app/egress.go). A key of the API then cannot send requests into the network of deneb.
+- Webhooks reach no link-local address, where the metadata services of clouds give out credentials (internal/app/egress.go). A key of the API then cannot make deneb fetch them, while a receiver on the same host or network needs no setting.
 - The first administrator needs a setup code from the log (internal/app/auth.go). Without it, the first person to reach a new server could claim it.
 - Every setting is an environment variable with a default (internal/config/config.go). deneb checks every setting at start and names each one that is wrong.

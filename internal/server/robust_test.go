@@ -85,11 +85,16 @@ func TestRetryVideo(t *testing.T) {
 	}
 }
 
-func TestWebhookToAPrivateAddress(t *testing.T) {
+// A webhook may go to a private network, where its receiver often runs, but not to
+// the metadata service of a cloud.
+func TestWebhookAddresses(t *testing.T) {
 	h := newHarness(t, nil)
 	h.signIn()
-	r := h.dashboard("POST", "/v1/webhooks", map[string]string{"url": "http://10.0.0.5/hooks/deneb"})
-	if r.status != http.StatusBadRequest || !strings.Contains(string(r.body), "DENEB_WEBHOOK_ALLOW_NETWORKS") {
+	r := h.dashboard("POST", "/v1/webhooks", map[string]string{"url": "http://169.254.169.254/latest/meta-data/"})
+	if r.status != http.StatusBadRequest || !strings.Contains(string(r.body), "link-local") {
+		t.Errorf("the metadata service: %d %s", r.status, r.body)
+	}
+	if r := h.dashboard("POST", "/v1/webhooks", map[string]string{"url": "http://10.0.0.5/hooks/deneb"}); r.status != http.StatusCreated {
 		t.Errorf("a private address: %d %s", r.status, r.body)
 	}
 }
