@@ -49,7 +49,7 @@ ffmpeg() {
   docker run --rm --user "$(id -u):$(id -g)" -v "$work:/work" -w /work --entrypoint ffmpeg "$image" -hide_banner -loglevel error "$@"
 }
 ffmpeg -f lavfi -i "life=s=1280x720:r=30:mold=10:ratio=0.1:life_color=#9cc3ff:death_color=#1a2c44:mold_color=#2c4a70" \
-  -i speech.wav -filter_complex "[1:a]apad=pad_dur=1.5[a]" -map 0:v -map "[a]" -shortest \
+  -i speech.wav -filter_complex "[1:a]apad[a]" -map 0:v -map "[a]" -t 10 \
   -c:v libx264 -pix_fmt yuv420p -c:a aac "clips/Welcome to deneb.mp4"
 ffmpeg -f lavfi -i "testsrc2=s=1920x1080:r=30:d=12" -f lavfi -i "sine=f=330:d=12" \
   -c:v libx264 -pix_fmt yuv420p -c:a aac "clips/Product tour.mp4"

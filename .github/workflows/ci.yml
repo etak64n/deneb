@@ -75,7 +75,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - run: ./test/e2e.sh deneb:e2e
+      - run: ./test/e2e.sh deneb:e2e local
+
+      - run: ./test/e2e.sh deneb:e2e s3
 
       # The same image again, through its dashboard in Google Chrome, which the runner has.
       - uses: pnpm/action-setup@v6

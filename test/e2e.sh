@@ -4,14 +4,17 @@
 # the encoding and the captions, fetches what a player fetches, and checks the
 # signed webhook that deneb sends when the video is ready.
 #
-# Usage: test/e2e.sh <image>
-# Needs docker, curl, jq, and python3.
+# Usage: test/e2e.sh <image> [local|s3]
+# With s3, deneb keeps the media in a bucket of RustFS, an S3-compatible server.
+# Needs docker, curl, jq, and python3, and the AWS CLI for s3.
 set -euo pipefail
 
-image=${1:?usage: test/e2e.sh <image>}
+image=${1:?usage: test/e2e.sh <image> [local|s3]}
+storage=${2:-local}
 work=$(mktemp -d)
 base=http://127.0.0.1:8080
 container=deneb-e2e
+bucket_container=deneb-e2e-bucket
 passed=false
 
 cleanup() {
@@ -21,7 +24,7 @@ cleanup() {
     echo "--- webhook receiver log ---"
     cat "$work/receiver.log" 2>/dev/null || true
   fi
-  docker rm -f "$container" >/dev/null 2>&1 || true
+  docker rm -f "$container" "$bucket_container" >/dev/null 2>&1 || true
   [[ -n ${receiver_pid:-} ]] && kill "$receiver_pid" 2>/dev/null || true
   rm -rf "$work"
 }
@@ -56,8 +59,32 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$work:/out" --entrypoint ffmpeg "
   -hide_banner -loglevel error -f lavfi -i testsrc2=size=1280x720:rate=30:duration=8 \
   -f lavfi -i sine=frequency=440:duration=8 -c:v libx264 -pix_fmt yuv420p -c:a aac /out/clip.mp4
 
-echo "Start deneb"
-docker run -d --name "$container" -p 8080:8080 --add-host=host.docker.internal:host-gateway \
+case $storage in
+  local)
+    run=(-p 8080:8080)
+    ;;
+  s3)
+    echo "Start RustFS with a bucket"
+    # deneb shares the network of the host here, so that the bucket has the same
+    # address for deneb and for the redirects that curl follows.
+    export AWS_ACCESS_KEY_ID=rustfsadmin AWS_SECRET_ACCESS_KEY=rustfsadmin AWS_DEFAULT_REGION=us-east-1
+    s3=(aws --endpoint-url http://127.0.0.1:9000 s3api)
+    docker run -d --name "$bucket_container" -p 9000:9000 rustfs/rustfs:1.0.4 >/dev/null
+    for _ in $(seq 60); do
+      "${s3[@]}" create-bucket --bucket deneb >/dev/null 2>&1 && break
+      sleep 1
+    done
+    "${s3[@]}" head-bucket --bucket deneb || fail "RustFS has no bucket"
+    run=(--network host -e DENEB_STORAGE=s3 -e DENEB_S3_ENDPOINT=http://127.0.0.1:9000 -e DENEB_S3_BUCKET=deneb
+      -e DENEB_S3_REGION=us-east-1 -e DENEB_S3_ACCESS_KEY_ID=rustfsadmin -e DENEB_S3_SECRET_ACCESS_KEY=rustfsadmin)
+    ;;
+  *)
+    fail "unknown storage $storage"
+    ;;
+esac
+
+echo "Start deneb with $storage storage"
+docker run -d --name "$container" "${run[@]}" --add-host=host.docker.internal:host-gateway \
   -e DENEB_CAPTIONS=true -e DENEB_CAPTIONS_MODEL=tiny -e DENEB_CAPTIONS_LANGUAGE=en \
   "$image" >/dev/null
 for _ in $(seq 60); do
@@ -121,9 +148,9 @@ variant=$(grep -m1 -v -e '^#' -e '^$' <<<"$master")
 playlist=$(curl -fsS "${root}hls/$variant")
 grep -q '#EXT-X-ENDLIST' <<<"$playlist" || fail "the playlist $variant is not complete"
 segment=$(grep -m1 -v -e '^#' -e '^$' <<<"$playlist")
-curl -fsS -o "$work/segment.ts" "${root}hls/$segment"
+curl -fsSL -o "$work/segment.ts" "${root}hls/$segment"
 [[ $(stat -c %s "$work/segment.ts") -gt 1000 ]] || fail "the segment $segment is empty"
-[[ $(curl -fsS -o /dev/null -w '%{content_type}' "$(jq -r .video.playback.poster_url <<<"$video")") == image/jpeg ]] || fail "the poster is not a JPEG"
+[[ $(curl -fsSL -o /dev/null -w '%{content_type}' "$(jq -r .video.playback.poster_url <<<"$video")") == image/jpeg ]] || fail "the poster is not a JPEG"
 curl -fsS "$(jq -r .video.playback.storyboard_url <<<"$video")" | grep -q 'storyboard.jpg#xywh=' || fail "the storyboard has no cues"
 curl -fsS "$(jq -r .video.playback.captions_url <<<"$video")" | head -1 | grep -q WEBVTT || fail "the captions are not WebVTT"
 curl -fsS "$(jq -r .video.playback.embed_url <<<"$video")" | grep -q '<div id="root">' || fail "the embed page did not load"
@@ -156,6 +183,10 @@ PY
 echo "Delete the video"
 curl "${api[@]}" -X DELETE "$base/v1/videos/$id" >/dev/null
 [[ $(curl -s -o /dev/null -w '%{http_code}' "$hls") == 404 ]] || fail "the stream of a deleted video still plays"
+if [[ $storage == s3 ]]; then
+  left=$("${s3[@]}" list-objects-v2 --bucket deneb --prefix "videos/$id/" --query 'length(Contents || `[]`)')
+  [[ $left == 0 ]] || fail "the bucket keeps $left files of the deleted video"
+fi
 
 passed=true
 echo "PASS"
