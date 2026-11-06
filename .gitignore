@@ -12,3 +12,8 @@
 # The browser test, and its screenshots and recordings.
 /test/browser/node_modules/
 /test/browser/out/
+
+# The documentation site: its dependencies, its build, and the types that Astro writes.
+/docs/node_modules/
+/docs/dist/
+/docs/.astro/

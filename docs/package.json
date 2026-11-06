@@ -1,0 +1,11 @@
+{
+  "name": "deneb-docs",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.16.1",
+  "dependencies": {
+    "@astrojs/markdown-remark": "^7.3.5",
+    "@astrojs/starlight": "^0.42.9",
+    "astro": "^7.4.5"
+  }
+}

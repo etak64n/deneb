@@ -1,0 +1,13 @@
+/* The accent of the dashboard of deneb (web/src/tokens.css), in the dark theme of
+   Starlight and in its light theme. */
+:root {
+  --sl-color-accent-low: #221a5c;
+  --sl-color-accent: #7a68ff;
+  --sl-color-accent-high: #d4cdff;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #eae7ff;
+  --sl-color-accent: #533afd;
+  --sl-color-accent-high: #2a1d8a;
+}
