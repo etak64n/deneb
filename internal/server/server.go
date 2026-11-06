@@ -190,21 +190,30 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 			http.ServeFileFS(w, r, s.ui, name)
 			return
 		}
+		// An asset of another version, as asked by a tab opened before an upgrade, is
+		// missing rather than the dashboard, which the browser cannot run as a script.
+		if strings.HasPrefix(name, "assets/") {
+			http.NotFound(w, r)
+			return
+		}
 	}
 	// The dashboard is never framed by another site.
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Cache-Control", "no-cache")
-	s.servePage(w, r, "index.html")
+	s.servePage(w, r, "index.html", http.StatusOK)
 }
 
-func (s *Server) servePage(w http.ResponseWriter, r *http.Request, name string) {
+func (s *Server) servePage(w http.ResponseWriter, r *http.Request, name string, status int) {
 	page, err := fs.ReadFile(s.ui, name)
 	if err != nil {
 		http.Error(w, "The dashboard is not built. Run `pnpm --dir web build` before `go build`.", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(page)
+	w.WriteHeader(status)
+	if r.Method != http.MethodHead {
+		w.Write(page)
+	}
 }
 
 // limiter allows a number of attempts per client within a window, against password guessing.

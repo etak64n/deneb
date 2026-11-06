@@ -208,9 +208,12 @@ func (a *App) View(video store.Video, base string) VideoView {
 		view.Renditions = []store.Rendition{}
 	}
 	if video.Status == store.VideoReady {
-		// Rounding down to the hour keeps the URLs the same for an hour, so that
-		// players and caches reuse them. They stay valid for at least TTL minus an hour.
-		exp := a.now().Add(a.cfg.PlaybackTTL).Truncate(time.Hour)
+		// Rounding up to the hour keeps the URLs the same for an hour, so that players
+		// and caches reuse them. They stay valid for at least TTL, at most an hour more.
+		exp := a.now().Add(a.cfg.PlaybackTTL)
+		if hour := exp.Truncate(time.Hour); !hour.Equal(exp) {
+			exp = hour.Add(time.Hour)
+		}
 		token := a.sign("playback", video.ID, exp)
 		root := fmt.Sprintf("%s/play/%s/%s/", base, video.ID, token)
 		view.Playback = &PlaybackView{

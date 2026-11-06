@@ -5,9 +5,10 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, messageOf, type Webhook } from "../api.ts";
 import { Button, CodeBox, Dialog, ErrorBox, PageHeader, Skeleton, table } from "../components/ui.tsx";
 import { formatDate } from "../format.ts";
-import { Link } from "../router.tsx";
+import { Link, useTitle } from "../router.tsx";
 
 export function WebhooksPage() {
+  useTitle("Webhooks");
   const [hooks, setHooks] = useState<Webhook[] | null>(null);
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
@@ -15,7 +16,10 @@ export function WebhooksPage() {
   const load = useCallback(() => {
     api
       .listWebhooks()
-      .then(({ webhooks }) => setHooks(webhooks))
+      .then(({ webhooks }) => {
+        setError("");
+        setHooks(webhooks);
+      })
       .catch((reason: unknown) => setError(messageOf(reason)));
   }, []);
   useEffect(load, [load]);
@@ -93,7 +97,7 @@ function AddEndpointDialog({ open, onClose, onAdded }: { open: boolean; onClose:
   }
 
   return (
-    <Dialog open={open} onClose={close} title={secret ? "Copy the signing secret" : "Add endpoint"}>
+    <Dialog open={open} onClose={close} title={secret ? "Copy the signing secret" : "Add endpoint"} dismissible={!secret}>
       {secret ? (
         <div className="grid gap-4">
           <p className="text-sm text-label">This is the only time the secret is shown. It signs every request in the Deneb-Signature header.</p>

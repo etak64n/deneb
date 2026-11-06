@@ -1,6 +1,6 @@
 // A small router on the History API.
 
-import { useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
 
 export function navigate(to: string): void {
   window.history.pushState(null, "", to);
@@ -30,4 +30,11 @@ export function Link({ to, className, current, children }: { to: string; classNa
       {children}
     </a>
   );
+}
+
+/** Names the page in the title of the tab, such as "Webhooks · deneb". */
+export function useTitle(title: string): void {
+  useEffect(() => {
+    document.title = title ? `${title} · deneb` : "deneb";
+  }, [title]);
 }

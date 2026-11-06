@@ -3,21 +3,31 @@
 // dragged over the window.
 
 import { Film, KeyRound, LogOut, Upload, Webhook, X } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { User } from "../api.ts";
 import { formatBytes } from "../format.ts";
 import { Link, usePathname } from "../router.tsx";
-import { useUploads } from "../uploads.tsx";
+import { useUploads, videoFiles, type UploadItem } from "../uploads.tsx";
 import { Button } from "./ui.tsx";
 
 const PAGES = [
   { to: "/", label: "Videos", icon: <Film />, match: (path: string) => path === "/" || path.startsWith("/videos") },
   { to: "/api-keys", label: "API keys", icon: <KeyRound />, match: (path: string) => path === "/api-keys" },
-  { to: "/webhooks", label: "Webhooks", icon: <Webhook />, match: (path: string) => path === "/webhooks" },
+  { to: "/webhooks", label: "Webhooks", icon: <Webhook />, match: (path: string) => path === "/webhooks" || path.startsWith("/webhooks/") },
 ];
 
 export function Shell({ user, onLogout, children }: { user: User; onLogout: () => void; children: ReactNode }) {
   const pathname = usePathname();
+  // After a move to another page, screen readers start reading at the new page.
+  const main = useRef<HTMLElement>(null);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    main.current?.focus({ preventScroll: true });
+  }, [pathname]);
   return (
     <>
       <a
@@ -73,7 +83,7 @@ export function Shell({ user, onLogout, children }: { user: User; onLogout: () =
         </Button>
       </header>
       <div className="lg:pl-sidebar">
-        <main id="main" tabIndex={-1} className="mx-auto grid max-w-[1280px] gap-10 px-4 pt-6 pb-16 outline-none sm:px-6 lg:px-10 lg:pt-8">
+        <main ref={main} id="main" tabIndex={-1} className="mx-auto grid max-w-[1280px] gap-10 px-4 pt-6 pb-16 outline-none sm:px-6 lg:px-10 lg:pt-8">
           <UploadList />
           {children}
         </main>
@@ -92,44 +102,74 @@ function Brand() {
   );
 }
 
-/** The uploads in progress, with their progress and a way to cancel. */
+/** The uploads in progress, with their progress and a way to cancel or retry them. */
 function UploadList() {
-  const { items, cancel, dismiss } = useUploads();
+  const { items, cancel, retry } = useUploads();
   if (items.length === 0) return null;
+  const settled = items.filter((item) => item.state === "done" || item.state === "failed");
   return (
     <section aria-label="Uploads" className="grid gap-2 rounded-md p-3 shadow-[0_0_0_1px_var(--ds-border)]">
-      {items.map((item) => {
-        const percent = item.size === 0 ? 100 : Math.floor((item.sent / item.size) * 100);
-        return (
-          <div key={item.key} className="grid gap-1.5">
-            <div className="flex min-h-7 items-center justify-between gap-3">
-              <p className="min-w-0 truncate text-sm">
-                <span className="font-semibold text-strong">{item.name}</span>{" "}
-                <span className="numeric text-subdued">
-                  {item.state === "creating" && "Starting..."}
-                  {item.state === "uploading" && `${percent}% of ${formatBytes(item.size)}`}
-                  {item.state === "done" && "Uploaded. Encoding starts shortly."}
-                </span>
-              </p>
-              {item.state === "failed" ? (
-                <Button variant="ghost" icon aria-label={`Dismiss ${item.name}`} onClick={() => dismiss(item.key)}>
-                  <X aria-hidden="true" />
-                </Button>
-              ) : (
-                item.state !== "done" && <Button onClick={() => cancel(item.key)}>Cancel</Button>
-              )}
-            </div>
-            {item.state === "failed" ? (
-              <p className="text-xs font-semibold text-critical">{item.error}</p>
-            ) : (
-              <div className="h-1 overflow-hidden rounded-full bg-surface-subdued">
-                <div className="h-full bg-accent transition-[width]" style={{ width: `${percent}%` }} />
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {items.map((item) => (
+        <UploadRow key={item.key} item={item} onCancel={() => cancel(item.key)} onRetry={() => retry(item.key)} />
+      ))}
+      <p className="sr-only" aria-live="polite">
+        {settled.map((item) => `${item.name}: ${item.state === "done" ? "uploaded" : "failed"}.`).join(" ")}
+      </p>
     </section>
+  );
+}
+
+const UPLOAD_STATES: Record<UploadItem["state"], string> = {
+  queued: "Queued",
+  creating: "Starting",
+  uploading: "",
+  done: "Uploaded",
+  failed: "Failed",
+};
+
+function UploadRow({ item, onCancel, onRetry }: { item: UploadItem; onCancel: () => void; onRetry: () => void }) {
+  const percent = item.size === 0 ? 100 : Math.floor((item.sent / item.size) * 100);
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex min-h-7 items-center gap-2">
+        <p className="flex min-w-0 flex-1 items-baseline gap-2 text-sm">
+          <span className="min-w-0 truncate font-semibold text-strong">{item.name}</span>
+          <span className="numeric shrink-0 text-subdued">
+            {item.state === "uploading" ? `${percent}% of ${formatBytes(item.size)}` : UPLOAD_STATES[item.state]}
+          </span>
+        </p>
+        {item.state === "failed" && (
+          <Button aria-label={`Retry ${item.name}`} onClick={onRetry}>
+            Retry
+          </Button>
+        )}
+        {item.state === "failed" ? (
+          <Button variant="ghost" icon aria-label={`Remove ${item.name}`} onClick={onCancel}>
+            <X aria-hidden="true" />
+          </Button>
+        ) : (
+          item.state !== "done" && (
+            <Button aria-label={`Cancel ${item.name}`} onClick={onCancel}>
+              Cancel
+            </Button>
+          )
+        )}
+      </div>
+      {item.state === "failed" ? (
+        <p className="text-xs font-semibold break-words text-critical-ink">{item.error}</p>
+      ) : (
+        <div
+          role="progressbar"
+          aria-label={item.name}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent}
+          className="h-1 overflow-hidden rounded-full bg-surface-subdued"
+        >
+          <div className="h-full bg-accent transition-[width]" style={{ width: `${percent}%` }} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -158,7 +198,7 @@ function DropCover() {
       event.preventDefault();
       depth = 0;
       setDragging(false);
-      const files = Array.from(event.dataTransfer?.files ?? []).filter((file) => file.type.startsWith("video/"));
+      const files = videoFiles(event.dataTransfer?.files ?? []);
       if (files.length > 0) start(files);
     };
     window.addEventListener("dragenter", enter);

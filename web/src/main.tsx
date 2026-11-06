@@ -1,8 +1,8 @@
-import { StrictMode, useCallback, useEffect, useState } from "react";
+import { Component, StrictMode, useCallback, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { api, messageOf, type AuthState } from "./api.ts";
+import { api, messageOf, onSignedOut, type AuthState } from "./api.ts";
 import { Shell } from "./components/Shell.tsx";
-import { ErrorBox } from "./components/ui.tsx";
+import { Button, ErrorBox } from "./components/ui.tsx";
 import { ApiKeysPage } from "./pages/ApiKeysPage.tsx";
 import { AuthPage } from "./pages/AuthPage.tsx";
 import { NotFoundPage } from "./pages/NotFoundPage.tsx";
@@ -18,13 +18,26 @@ function App() {
   const [state, setState] = useState<AuthState | null>(null);
   const [error, setError] = useState("");
 
-  const load = useCallback(() => {
-    api
-      .authState()
-      .then(setState)
-      .catch((reason: unknown) => setError(messageOf(reason)));
-  }, []);
-  useEffect(load, [load]);
+  // Resolves to whether someone is signed in.
+  const load = useCallback(
+    () =>
+      api
+        .authState()
+        .then((next) => {
+          setState(next);
+          return next.user !== null;
+        })
+        .catch((reason: unknown) => {
+          setError(messageOf(reason));
+          return false;
+        }),
+    [],
+  );
+  useEffect(() => {
+    void load();
+    // When the session ends, as after 30 days, the sign-in page comes back.
+    onSignedOut(() => void load());
+  }, [load]);
 
   if (error) {
     return (
@@ -43,11 +56,13 @@ function App() {
         onLogout={() => {
           void api.logout().finally(() => {
             navigate("/");
-            load();
+            void load();
           });
         }}
       >
-        <Routes captions={state.captions} />
+        <PageBoundary>
+          <Routes captions={state.captions} />
+        </PageBoundary>
       </Shell>
     </UploadsProvider>
   );
@@ -63,6 +78,28 @@ function Routes({ captions }: { captions: boolean }) {
   const webhook = /^\/webhooks\/([^/]+)$/.exec(pathname);
   if (webhook?.[1]) return <WebhookPage key={webhook[1]} id={decodeURIComponent(webhook[1])} />;
   return <NotFoundPage />;
+}
+
+/**
+ * Keeps the dashboard on screen when a page fails to render, as when deneb was upgraded
+ * while the tab was open and a part of the old version is gone.
+ */
+class PageBoundary extends Component<{ children: ReactNode }, { error: string }> {
+  override state = { error: "" };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error: messageOf(error) };
+  }
+
+  override render() {
+    if (this.state.error === "") return this.props.children;
+    return (
+      <div className="grid justify-items-start gap-4">
+        <ErrorBox>{this.state.error}</ErrorBox>
+        <Button onClick={() => window.location.reload()}>Reload</Button>
+      </div>
+    );
+  }
 }
 
 const root = document.getElementById("root");

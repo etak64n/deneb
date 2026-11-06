@@ -5,8 +5,10 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, messageOf, type ApiKey } from "../api.ts";
 import { Button, CodeBox, ConfirmDialog, Dialog, ErrorBox, PageHeader, Skeleton, table } from "../components/ui.tsx";
 import { formatDate } from "../format.ts";
+import { useTitle } from "../router.tsx";
 
 export function ApiKeysPage() {
+  useTitle("API keys");
   const [keys, setKeys] = useState<ApiKey[] | null>(null);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
@@ -15,7 +17,10 @@ export function ApiKeysPage() {
   const load = useCallback(() => {
     api
       .listApiKeys()
-      .then(({ api_keys }) => setKeys(api_keys))
+      .then(({ api_keys }) => {
+        setError("");
+        setKeys(api_keys);
+      })
       .catch((reason: unknown) => setError(messageOf(reason)));
   }, []);
   useEffect(load, [load]);
@@ -115,7 +120,7 @@ function CreateKeyDialog({ open, onClose, onCreated }: { open: boolean; onClose:
   }
 
   return (
-    <Dialog open={open} onClose={close} title={secret ? "Copy the key" : "Create key"}>
+    <Dialog open={open} onClose={close} title={secret ? "Copy the key" : "Create key"} dismissible={!secret}>
       {secret ? (
         <div className="grid gap-4">
           <p className="text-sm text-label">This is the only time the key is shown.</p>

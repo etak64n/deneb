@@ -2,12 +2,14 @@
 // to play or embed it.
 
 import { lazy, Suspense, useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, messageOf, type CaptionsStatus, type Video } from "../api.ts";
+import { api, messageOf, type CaptionsStatus, type Playback, type Video } from "../api.ts";
 import { Button, CodeBox, ConfirmDialog, DetailList, Dialog, ErrorBox, PageHeader, Section, Skeleton, StatusBadge, table } from "../components/ui.tsx";
 import { formatBytes, formatDateTime, formatDuration } from "../format.ts";
-import { Link, navigate } from "../router.tsx";
+import { Link, navigate, useTitle } from "../router.tsx";
 
 const POLL_MS = 3000;
+/** How long before its URLs expire the page asks for new ones. */
+const RENEW_MS = 60_000;
 
 // The player is the largest part of the dashboard; it loads with the first video page.
 const Player = lazy(() => import("../components/Player.tsx").then((module) => ({ default: module.Player })));
@@ -35,19 +37,37 @@ function settled(video: Video): boolean {
   return encoded && video.captions.status !== "queued" && video.captions.status !== "processing";
 }
 
+/** The playback of a fresh look at a video, keeping the URLs that the player has while they last. */
+function keepPlayback(old: Playback | undefined, fresh: Playback | undefined): Playback | undefined {
+  if (old === undefined || fresh === undefined) return fresh;
+  // New URLs would restart the player; only the captions, once written, are new.
+  if (Date.parse(old.expires_at) - Date.now() > RENEW_MS) return { ...old, captions_url: fresh.captions_url };
+  return fresh;
+}
+
+function escapeAttribute(text: string): string {
+  return text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+/** An iframe for other sites, in the shape of the video. */
+function embedCode(video: Video, playback: Playback): string {
+  const ratio = video.width > 0 && video.height > 0 ? `${video.width}/${video.height}` : "16/9";
+  return `<iframe src="${escapeAttribute(playback.embed_url)}" title="${escapeAttribute(video.title || "Video")}" style="width:100%;aspect-ratio:${ratio};border:0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>`;
+}
+
 export function VideoPage({ id, captions }: { id: string; captions: boolean }) {
   const [video, setVideo] = useState<Video | null>(null);
   const [error, setError] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  useTitle(video?.title || (video ? "Untitled" : ""));
 
   const load = useCallback(() => {
     api
       .getVideo(id)
       .then(({ video: fresh }) => {
         setError("");
-        // A new signed URL each time would restart the player; keep the one it plays.
-        setVideo((old) => (old?.playback && fresh.playback ? { ...fresh, playback: old.playback } : fresh));
+        setVideo((old) => ({ ...fresh, playback: keepPlayback(old?.playback, fresh.playback) }));
       })
       .catch((reason: unknown) => setError(messageOf(reason)));
   }, [id]);
@@ -59,6 +79,17 @@ export function VideoPage({ id, captions }: { id: string; captions: boolean }) {
     const timer = setInterval(load, POLL_MS);
     return () => clearInterval(timer);
   }, [polling, load]);
+
+  // A page left open asks for new URLs before the ones it has expire.
+  const expiresAt = video?.playback?.expires_at;
+  useEffect(() => {
+    if (expiresAt === undefined) return;
+    const wait = Date.parse(expiresAt) - Date.now() - RENEW_MS;
+    // setTimeout cannot wait longer than about 24 days.
+    if (wait > 2_000_000_000) return;
+    const timer = setTimeout(load, Math.max(0, wait));
+    return () => clearTimeout(timer);
+  }, [expiresAt, load]);
 
   if (video === null) {
     return (
@@ -72,9 +103,6 @@ export function VideoPage({ id, captions }: { id: string; captions: boolean }) {
   }
 
   const playback = video.playback;
-  const embedCode = playback
-    ? `<iframe src="${playback.embed_url}" style="width:100%;aspect-ratio:16/9;border:0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>`
-    : "";
 
   return (
     <div className="grid gap-8">
@@ -146,7 +174,7 @@ export function VideoPage({ id, captions }: { id: string; captions: boolean }) {
             </div>
             <div className="grid gap-1.5">
               <h3 className="text-sm font-bold text-strong">Embed</h3>
-              <CodeBox text={embedCode} />
+              <CodeBox text={embedCode(video, playback)} />
             </div>
             <p className="numeric text-xs text-subdued">Expires {formatDateTime(playback.expires_at)}</p>
           </div>

@@ -41,6 +41,9 @@
   --text-display: 28px;
   --text-display--line-height: 36px;
   --spacing-sidebar: 240px;
+  /* The red of error text on its light red background, a little darker than the red of
+     the design so that it keeps a contrast of 4.5:1 there. */
+  --color-critical-ink: #c8193c;
 }
 
 body {

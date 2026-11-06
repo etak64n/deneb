@@ -140,7 +140,7 @@ func TestViewSignsReadyVideosForAnHour(t *testing.T) {
 	if first.CaptionsURL != "" || !strings.HasPrefix(first.EmbedURL, "https://video.example.com/embed/vid_a?token=") {
 		t.Errorf("playback %+v", first)
 	}
-	if want := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC); !first.ExpiresAt.Equal(want) {
+	if want := time.Date(2026, 11, 7, 11, 0, 0, 0, time.UTC); !first.ExpiresAt.Equal(want) {
 		t.Errorf("expires at %v, want %v", first.ExpiresAt, want)
 	}
 	a.now = func() time.Time { return at.Add(40 * time.Minute) }

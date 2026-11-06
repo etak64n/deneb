@@ -1,7 +1,7 @@
 // The parts of the dashboard: buttons, badges, headings, details, dialogs.
 
 import { Check, Copy } from "lucide-react";
-import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { VideoStatus } from "../api.ts";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
@@ -72,7 +72,7 @@ const STATUS: Record<VideoStatus, { label: string; tone: string }> = {
   queued: { label: "Queued", tone: "bg-surface-subdued text-label shadow-[0_0_0_1px_var(--ds-border)]" },
   processing: { label: "Processing", tone: "bg-accent-subtle text-accent" },
   ready: { label: "Ready", tone: "bg-positive-subtle text-positive shadow-[0_0_0_1px_var(--ds-positive-border)]" },
-  failed: { label: "Failed", tone: "bg-critical/10 text-critical" },
+  failed: { label: "Failed", tone: "bg-critical/10 text-critical-ink" },
 };
 
 /** The state of a video as a badge, with the progress while it encodes. */
@@ -83,29 +83,56 @@ export function StatusBadge({ status, progress }: { status: VideoStatus; progres
 }
 
 export function ErrorBox({ children }: { children: ReactNode }) {
-  return <p className="rounded-sm bg-critical/10 px-3 py-2 text-sm font-semibold break-words text-critical">{children}</p>;
+  return (
+    <p role="alert" className="rounded-sm bg-critical/10 px-3 py-2 text-sm font-semibold break-words text-critical-ink">
+      {children}
+    </p>
+  );
 }
 
 export function Skeleton({ className = "" }: { className?: string }) {
   return <div aria-hidden="true" className={`animate-pulse rounded-xs bg-surface-subdued ${className}`} />;
 }
 
+/**
+ * Puts a text on the clipboard. Pages served over plain HTTP, such as deneb on a local
+ * address, have no clipboard API, so a selected text area next to the button copies it there.
+ */
+async function copyText(text: string, near: HTMLElement): Promise<void> {
+  if (window.isSecureContext && navigator.clipboard !== undefined) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.readOnly = true;
+  area.className = "fixed top-0 left-0 opacity-0";
+  // Inside an open dialog, the rest of the page is inert and cannot be selected.
+  near.after(area);
+  area.select();
+  const copied = document.execCommand("copy");
+  area.remove();
+  if (!copied) throw new Error("The browser did not copy the text.");
+}
+
 /** A button that copies a text and says so for a moment. */
 export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
-  const [copied, setCopied] = useState(false);
+  const [result, setResult] = useState<"copied" | "failed" | null>(null);
   useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1500);
+    if (result === null) return;
+    const timer = setTimeout(() => setResult(null), 1500);
     return () => clearTimeout(timer);
-  }, [copied]);
+  }, [result]);
   return (
     <Button
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => setCopied(true));
+      onClick={(event) => {
+        copyText(text, event.currentTarget)
+          .then(() => setResult("copied"))
+          .catch(() => setResult("failed"));
       }}
     >
-      {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-      {copied ? "Copied" : label}
+      {result === "copied" ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+      {result === "copied" ? "Copied" : result === "failed" ? "Copy failed" : label}
     </Button>
   );
 }
@@ -120,9 +147,27 @@ export function CodeBox({ text }: { text: string }) {
   );
 }
 
-/** A window over the page, on the native dialog element, which keeps the focus inside and closes on Escape. */
-export function Dialog({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
+/**
+ * A window over the page, on the native dialog element, which keeps the focus inside. It
+ * closes on Escape and on a click on the backdrop, unless it is not dismissible, as when
+ * it shows a secret that would be lost.
+ */
+export function Dialog({
+  open,
+  onClose,
+  title,
+  dismissible = true,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  dismissible?: boolean;
+  children: ReactNode;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
+  const pressed = useRef<EventTarget | null>(null);
+  const titleId = useId();
   useEffect(() => {
     const dialog = ref.current;
     if (dialog === null) return;
@@ -132,16 +177,26 @@ export function Dialog({ open, onClose, title, children }: { open: boolean; onCl
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        if (!dismissible) event.preventDefault();
+      }}
       onClose={onClose}
+      onPointerDown={(event) => {
+        pressed.current = event.target;
+      }}
       onClick={(event) => {
-        // A click on the backdrop, which is the dialog element itself, closes it.
-        if (event.target === ref.current) onClose();
+        // The backdrop is the dialog element itself. A selection that started inside and
+        // ended on the backdrop is not a click on it.
+        if (dismissible && event.target === ref.current && pressed.current === ref.current) onClose();
       }}
       className="m-auto w-[calc(100%-2rem)] max-w-md rounded-xl bg-surface p-0 text-ink shadow-popover"
     >
       {open && (
         <div className="grid gap-4 p-5">
-          <h2 className="text-figure font-bold text-strong">{title}</h2>
+          <h2 id={titleId} className="text-figure font-bold [overflow-wrap:anywhere] text-strong">
+            {title}
+          </h2>
           {children}
         </div>
       )}

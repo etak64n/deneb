@@ -5,11 +5,13 @@ import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react
 import { api, messageOf, type Video } from "../api.ts";
 import { Button, ErrorBox, PageHeader, Skeleton, StatusBadge, table } from "../components/ui.tsx";
 import { formatDate, formatDuration } from "../format.ts";
-import { Link, navigate } from "../router.tsx";
-import { useUploads } from "../uploads.tsx";
+import { Link, navigate, useTitle } from "../router.tsx";
+import { useUploads, VIDEO_ACCEPT } from "../uploads.tsx";
 
 /** How often the list looks again while a video encodes. */
 const POLL_MS = 3000;
+/** The videos of a page of the list. */
+const PAGE = 50;
 
 function inProgress(video: Video): boolean {
   return video.status === "queued" || video.status === "processing" || video.captions.status === "queued" || video.captions.status === "processing";
@@ -17,20 +19,27 @@ function inProgress(video: Video): boolean {
 
 /** Whether a comes after b in the order of the list: newest first, then by ID. */
 function isOlder(a: Video, b: Video): boolean {
-  return a.created_at < b.created_at || (a.created_at === b.created_at && a.id < b.id);
+  const at = Date.parse(a.created_at);
+  const bt = Date.parse(b.created_at);
+  return at < bt || (at === bt && a.id < b.id);
 }
 
 export function VideosPage() {
+  useTitle("Videos");
   const [list, setList] = useState<{ videos: Video[]; next: string } | null>(null);
   const [error, setError] = useState("");
   const [loadingMore, setLoadingMore] = useState(false);
-  const { start, finished } = useUploads();
+  const { start, uploaded, version } = useUploads();
   const fileInput = useRef<HTMLInputElement>(null);
+  const loaded = useRef(0);
+  useEffect(() => {
+    loaded.current = list?.videos.length ?? 0;
+  }, [list]);
 
-  // Loads the first page again, and keeps the pages loaded after it.
+  // Loads the videos shown again, up to the largest page, and keeps any after them.
   const refresh = useCallback(() => {
     api
-      .listVideos()
+      .listVideos(Math.min(100, Math.max(PAGE, loaded.current)))
       .then(({ videos: fresh, next_cursor }) => {
         setError("");
         setList((old) => {
@@ -44,11 +53,12 @@ export function VideosPage() {
       .catch((reason: unknown) => setError(messageOf(reason)));
   }, []);
 
-  useEffect(refresh, [refresh, finished]);
+  useEffect(refresh, [refresh, version]);
 
   const videos = list?.videos ?? null;
   const next = list?.next ?? "";
-  const busy = videos?.some(inProgress) ?? false;
+  // A video whose file just arrived waits a moment before deneb queues it.
+  const busy = videos?.some((video) => inProgress(video) || (video.status === "waiting" && uploaded.has(video.id))) ?? false;
   useEffect(() => {
     if (!busy) return;
     const timer = setInterval(refresh, POLL_MS);
@@ -58,7 +68,7 @@ export function VideosPage() {
   function loadMore() {
     setLoadingMore(true);
     api
-      .listVideos(next)
+      .listVideos(PAGE, next)
       .then(({ videos: more, next_cursor }) => {
         setList((old) => {
           const seen = new Set(old?.videos.map((video) => video.id));
@@ -87,7 +97,7 @@ export function VideosPage() {
       <input
         ref={fileInput}
         type="file"
-        accept="video/*"
+        accept={VIDEO_ACCEPT}
         multiple
         hidden
         onChange={(event) => {
@@ -98,11 +108,13 @@ export function VideosPage() {
       />
       {error && <ErrorBox>{error}</ErrorBox>}
       {videos === null ? (
-        <div className="grid gap-3" aria-busy="true">
-          {Array.from({ length: 5 }, (_, index) => (
-            <Skeleton key={index} className="h-14" />
-          ))}
-        </div>
+        !error && (
+          <div className="grid gap-3" aria-busy="true">
+            {Array.from({ length: 5 }, (_, index) => (
+              <Skeleton key={index} className="h-14" />
+            ))}
+          </div>
+        )
       ) : videos.length === 0 ? (
         <button
           type="button"
@@ -139,11 +151,11 @@ function VideoTable({ videos }: { videos: Video[] }) {
       <table className="w-full table-fixed text-sm">
         <thead>
           <tr className={table.headRow}>
-            <th className={`${table.head} w-28`}>
+            <th className={`${table.head} hidden w-28 sm:table-cell`}>
               <span className="sr-only">Poster</span>
             </th>
             <th className={table.head}>Title</th>
-            <th className={`${table.head} w-40`}>Status</th>
+            <th className={`${table.head} w-32 sm:w-40`}>Status</th>
             <th className={`${table.head} hidden w-24 text-right sm:table-cell`}>Duration</th>
             <th className={`${table.head} hidden w-28 md:table-cell`}>Created</th>
           </tr>
@@ -151,7 +163,7 @@ function VideoTable({ videos }: { videos: Video[] }) {
         <tbody>
           {videos.map((video) => (
             <tr key={video.id} onClick={(event) => openRow(event, video.id)} className={`${table.row} cursor-pointer transition-colors duration-150 hover:bg-surface-subdued`}>
-              <td className="py-2 pr-2 pl-2">
+              <td className="hidden py-2 pr-2 pl-2 sm:table-cell">
                 <Poster video={video} />
               </td>
               <td className={`${table.cell} truncate`}>

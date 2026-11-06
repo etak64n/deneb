@@ -3,8 +3,10 @@
 import { useState, type FormEvent } from "react";
 import { api, messageOf } from "../api.ts";
 import { Button, ErrorBox } from "../components/ui.tsx";
+import { useTitle } from "../router.tsx";
 
-export function AuthPage({ setup, onSignedIn }: { setup: boolean; onSignedIn: () => void }) {
+export function AuthPage({ setup, onSignedIn }: { setup: boolean; onSignedIn: () => Promise<boolean> }) {
+  useTitle(setup ? "Create the administrator" : "Sign in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -16,10 +18,12 @@ export function AuthPage({ setup, onSignedIn }: { setup: boolean; onSignedIn: ()
     setError("");
     (setup ? api.setup(email, password) : api.login(email, password))
       .then(onSignedIn)
-      .catch((reason: unknown) => {
-        setError(messageOf(reason));
-        setBusy(false);
-      });
+      .then((signedIn) => {
+        // A cookie marked Secure is dropped when deneb is opened over plain HTTP.
+        if (!signedIn) setError("The browser did not keep the session. Open deneb at its public HTTPS address.");
+      })
+      .catch((reason: unknown) => setError(messageOf(reason)))
+      .finally(() => setBusy(false));
   }
 
   return (

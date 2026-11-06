@@ -4,12 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { api, messageOf, type Delivery, type Webhook } from "../api.ts";
 import { Button, ConfirmDialog, ErrorBox, PageHeader, Section, Skeleton, table } from "../components/ui.tsx";
 import { formatDateTime } from "../format.ts";
-import { Link, navigate } from "../router.tsx";
+import { Link, navigate, useTitle } from "../router.tsx";
 
 const DELIVERY_TONES: Record<Delivery["status"], string> = {
   pending: "bg-surface-subdued text-label shadow-[0_0_0_1px_var(--ds-border)]",
   delivered: "bg-positive-subtle text-positive shadow-[0_0_0_1px_var(--ds-positive-border)]",
-  failed: "bg-critical/10 text-critical",
+  failed: "bg-critical/10 text-critical-ink",
 };
 
 const DELIVERY_LABELS: Record<Delivery["status"], string> = {
@@ -23,6 +23,7 @@ export function WebhookPage({ id }: { id: string }) {
   const [deliveries, setDeliveries] = useState<Delivery[] | null>(null);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  useTitle(hook?.url ?? "Webhook");
 
   const load = useCallback(() => {
     Promise.all([api.listWebhooks(), api.listDeliveries(id)])
@@ -32,6 +33,7 @@ export function WebhookPage({ id }: { id: string }) {
           setError("This endpoint does not exist.");
           return;
         }
+        setError("");
         setHook(found);
         setDeliveries(list);
       })

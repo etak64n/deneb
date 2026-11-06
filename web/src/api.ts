@@ -90,6 +90,13 @@ export class ApiError extends Error {
   }
 }
 
+let signedOut: (() => void) | null = null;
+
+/** Sets what happens when the session ends while the dashboard is open, such as after it expires. */
+export function onSignedOut(handler: () => void): void {
+  signedOut = handler;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const response = await fetch(path, {
     method,
@@ -99,9 +106,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (response.status === 204) return undefined as T;
-  const text = await response.text();
-  const data = text === "" ? null : (JSON.parse(text) as unknown);
+  // A proxy in front of deneb can answer with a page of its own rather than JSON.
+  const json = response.headers.get("Content-Type")?.includes("application/json") ?? false;
+  const data = json ? ((await response.json()) as unknown) : null;
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith("/auth/")) signedOut?.();
     const message = (data as { error?: { message?: string } } | null)?.error?.message ?? `${response.status} ${response.statusText}`;
     throw new ApiError(response.status, message);
   }
@@ -114,8 +123,8 @@ export const api = {
   login: (email: string, password: string) => request<{ user: User }>("POST", "/auth/login", { email, password }),
   logout: () => request<void>("POST", "/auth/logout"),
 
-  listVideos: (cursor?: string) =>
-    request<{ videos: Video[]; next_cursor: string }>("GET", `/v1/videos?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`),
+  listVideos: (limit: number, cursor?: string) =>
+    request<{ videos: Video[]; next_cursor: string }>("GET", `/v1/videos?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`),
   getVideo: (id: string) => request<{ video: Video }>("GET", `/v1/videos/${encodeURIComponent(id)}`),
   createVideo: (title: string) => request<{ video: Video; upload: Upload }>("POST", "/v1/videos", { title }),
   renameVideo: (id: string, title: string) => request<{ video: Video }>("PATCH", `/v1/videos/${encodeURIComponent(id)}`, { title }),

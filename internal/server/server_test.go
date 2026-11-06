@@ -166,6 +166,10 @@ func TestDashboard(t *testing.T) {
 	if r := h.do("GET", "/assets/app.js", nil); r.status != http.StatusOK || !strings.Contains(r.header.Get("Cache-Control"), "immutable") {
 		t.Errorf("asset: %d %v", r.status, r.header)
 	}
+	// An asset of another version is missing, not the dashboard.
+	if r := h.do("GET", "/assets/app-old.js", nil); r.status != http.StatusNotFound || strings.Contains(string(r.body), "<title>dashboard</title>") {
+		t.Errorf("a missing asset: %d %s", r.status, r.body)
+	}
 	if r := h.do("POST", "/", nil); r.status != http.StatusMethodNotAllowed {
 		t.Errorf("POST /: %d", r.status)
 	}
@@ -505,8 +509,13 @@ func TestPlayback(t *testing.T) {
 	if r := h.do("GET", root+"hls/720p_00000.ts", nil, "Range", "bytes=0-2"); r.status != http.StatusPartialContent || string(r.body) != "seg" {
 		t.Errorf("a range of a segment: %d %q", r.status, r.body)
 	}
-	if r := h.do("GET", root+"poster.jpg", nil); r.status != http.StatusOK || r.header.Get("Content-Type") != "image/jpeg" {
+	if r := h.do("GET", root+"poster.jpg", nil); r.status != http.StatusOK || r.header.Get("Content-Type") != "image/jpeg" ||
+		r.header.Get("Cache-Control") != "public, max-age=86400" {
 		t.Errorf("poster: %d %v", r.status, r.header)
+	}
+	// Caches keep files, never errors.
+	if r := h.do("GET", root+"hls/720p_00009.ts", nil); r.status != http.StatusNotFound || r.header.Get("Cache-Control") != "no-store" {
+		t.Errorf("a missing segment: %d %v", r.status, r.header)
 	}
 	for _, path := range []string{root + "source", root + "hls/missing.ts", "/play/" + id + "/123.abc/hls/master.m3u8", "/play/vid_other/" + strings.Split(root, "/")[3] + "/poster.jpg"} {
 		if r := h.do("GET", path, nil); r.status != http.StatusNotFound && r.status != http.StatusForbidden {
@@ -532,8 +541,9 @@ func TestPlayback(t *testing.T) {
 	if embed.status != http.StatusOK || !strings.Contains(string(embed.body), "<title>embed</title>") || embed.header.Get("X-Frame-Options") != "" {
 		t.Errorf("embed: %d %v %s", embed.status, embed.header, embed.body)
 	}
-	if r := h.do("GET", "/embed/"+id+"?token=123.abc", nil); r.status != http.StatusForbidden {
-		t.Errorf("embed with a forged token: %d", r.status)
+	// The page itself says that the video is not available.
+	if r := h.do("GET", "/embed/"+id+"?token=123.abc", nil); r.status != http.StatusForbidden || !strings.Contains(string(r.body), "<title>embed</title>") {
+		t.Errorf("embed with a forged token: %d %s", r.status, r.body)
 	}
 }
 

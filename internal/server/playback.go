@@ -42,14 +42,41 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	switch path.Ext(name) {
-	case ".ts", ".jpg":
-		w.Header().Set("Cache-Control", "public, max-age=86400")
-	default:
-		w.Header().Set("Cache-Control", "public, max-age=60")
+	cache := "public, max-age=60"
+	if ext := path.Ext(name); ext == ".ts" || ext == ".jpg" {
+		cache = "public, max-age=86400"
 	}
-	s.app.Storage().Serve(w, r, key)
+	s.app.Storage().Serve(&cacheOnSuccess{ResponseWriter: w, cache: cache}, r, key)
 }
+
+// cacheOnSuccess lets browsers and CDNs keep the files that deneb serves, and nothing
+// else: an error, or a redirect to a signed URL of the bucket that expires in minutes.
+type cacheOnSuccess struct {
+	http.ResponseWriter
+	cache   string
+	written bool
+}
+
+func (c *cacheOnSuccess) WriteHeader(status int) {
+	if !c.written {
+		c.written = true
+		if status == http.StatusOK || status == http.StatusPartialContent || status == http.StatusNotModified {
+			c.Header().Set("Cache-Control", c.cache)
+		} else {
+			c.Header().Set("Cache-Control", "no-store")
+		}
+	}
+	c.ResponseWriter.WriteHeader(status)
+}
+
+func (c *cacheOnSuccess) Write(data []byte) (int, error) {
+	if !c.written {
+		c.WriteHeader(http.StatusOK)
+	}
+	return c.ResponseWriter.Write(data)
+}
+
+func (c *cacheOnSuccess) Unwrap() http.ResponseWriter { return c.ResponseWriter }
 
 // playInfo tells the embed page the title of the video and whether it has captions.
 func (s *Server) playInfo(w http.ResponseWriter, r *http.Request, id string) {
@@ -73,12 +100,14 @@ func (s *Server) playInfo(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 // embed serves the player page that sites put in an iframe. The page reads the
-// video and the token from its URL, and plays the stream through /play.
+// video and the token from its URL, and plays the stream through /play. With a token
+// that is wrong or expired, the page still loads, with 403, and says the video is not
+// available, rather than a bare error in the frame of another site.
 func (s *Server) embed(w http.ResponseWriter, r *http.Request) {
+	status := http.StatusOK
 	if !s.app.VerifyPlaybackToken(r.PathValue("id"), r.URL.Query().Get("token")) {
-		http.Error(w, "The playback URL is invalid or expired.", http.StatusForbidden)
-		return
+		status = http.StatusForbidden
 	}
 	w.Header().Set("Cache-Control", "no-cache")
-	s.servePage(w, r, "embed.html")
+	s.servePage(w, r, "embed.html", status)
 }
