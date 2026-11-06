@@ -16,7 +16,7 @@ docker compose pull
 docker compose up -d
 ```
 
-- The tag `0.1` follows the fixes of 0.1, so a release such as 0.2 needs the tag in compose.yaml changed first.
+- The tag `0.2` follows the fixes of 0.2, so a release such as 0.3 needs the tag in compose.yaml changed first.
 - deneb updates its database at start (internal/store/migrations).
 - The jobs that were running when the old container stopped run again.
 - Two deneb cannot use one data folder at once. The second one stops at start, so replace the container rather than run both.

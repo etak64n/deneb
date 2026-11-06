@@ -15,8 +15,8 @@ compose.yaml in the repository runs deneb behind the proxy.
 # forwards to port 8080 of this host. Replace the address with your own.
 services:
   deneb:
-    # 0.1 follows the fixes of 0.1; latest follows every release.
-    image: ghcr.io/etak64n/deneb:0.1
+    # 0.2 follows the fixes of 0.2; latest follows every release.
+    image: ghcr.io/etak64n/deneb:0.2
     restart: unless-stopped
     ports:
       # Only the proxy on this host reaches deneb, so the X-Forwarded-For it sets can be trusted.
