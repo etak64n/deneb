@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/etak64n/deneb/internal/media"
+	"github.com/etak64n/deneb/internal/storage"
 	"github.com/etak64n/deneb/internal/store"
 )
 
@@ -197,5 +198,47 @@ func TestWebhooksStayOffMetadataServices(t *testing.T) {
 	}
 	if reason := deliveryError(err); reason != blocked.Error() || strings.Contains(reason, "169.254") {
 		t.Errorf("the reason of the delivery %q", reason)
+	}
+}
+
+// failingMoves fails MoveFile for one key.
+type failingMoves struct {
+	storage.Storage
+	key string
+}
+
+func (f failingMoves) MoveFile(ctx context.Context, key, local string) error {
+	if key == f.key {
+		return errors.New("the bucket did not answer")
+	}
+	return f.Storage.MoveFile(ctx, key, local)
+}
+
+func TestMoveAll(t *testing.T) {
+	ctx := context.Background()
+	a := newApp(t)
+	dir := t.TempDir()
+	files := map[string]string{}
+	for i := range 20 {
+		local := filepath.Join(dir, fmt.Sprintf("seg_%02d.ts", i))
+		os.WriteFile(local, []byte(fmt.Sprint(i)), 0o644)
+		files[fmt.Sprintf("videos/vid_a/hls/seg_%02d.ts", i)] = local
+	}
+	if err := a.moveAll(ctx, files); err != nil {
+		t.Fatal(err)
+	}
+	for key, local := range files {
+		if _, err := os.Stat(local); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s stays in the work folder", local)
+		}
+		if data, err := a.storage.ReadFile(ctx, key); err != nil || len(data) == 0 {
+			t.Errorf("%s: %q, %v", key, data, err)
+		}
+	}
+
+	os.WriteFile(filepath.Join(dir, "poster.jpg"), []byte("jpeg"), 0o644)
+	a.storage = failingMoves{Storage: a.storage, key: "videos/vid_b/poster.jpg"}
+	if err := a.moveAll(ctx, map[string]string{"videos/vid_b/poster.jpg": filepath.Join(dir, "poster.jpg")}); err == nil {
+		t.Error("a move that failed returned no error")
 	}
 }

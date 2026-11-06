@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/etak64n/deneb/internal/media"
@@ -133,15 +134,15 @@ func (a *App) encode(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	files := map[string]string{}
 	for _, entry := range entries {
-		if err := a.storage.PutFile(ctx, videoPrefix(id)+"hls/"+entry.Name(), filepath.Join(hlsDir, entry.Name())); err != nil {
-			return err
-		}
+		files[videoPrefix(id)+"hls/"+entry.Name()] = filepath.Join(hlsDir, entry.Name())
 	}
 	for _, name := range []string{"poster.jpg", "storyboard.jpg", "storyboard.vtt"} {
-		if err := a.storage.PutFile(ctx, videoPrefix(id)+name, filepath.Join(work, name)); err != nil {
-			return err
-		}
+		files[videoPrefix(id)+name] = filepath.Join(work, name)
+	}
+	if err := a.moveAll(ctx, files); err != nil {
+		return err
 	}
 	if source == upload {
 		if err := a.storage.MoveFile(ctx, sourceKey(id), upload); err != nil {
@@ -239,4 +240,49 @@ func (a *App) transcribe(ctx context.Context, id string) error {
 	a.log.Info("wrote the captions of a video", "video", id, "language", language)
 	a.emit(done, EventVideoCaptionsReady, id)
 	return nil
+}
+
+// storeParallel is how many files moveAll stores at once. A bucket takes many at once
+// far faster than one after another, and a rename on the volume costs nothing.
+const storeParallel = 8
+
+// moveAll moves the files of the work folder into the storage, under their keys: a
+// rename each on the volume, and an upload each to a bucket, storeParallel at a time.
+// It returns the first error, and stops the rest when one fails.
+func (a *App) moveAll(ctx context.Context, files map[string]string) error {
+	work, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type move struct{ key, local string }
+	moves := make(chan move)
+	failures := make(chan error, 1)
+	var wg sync.WaitGroup
+	for range storeParallel {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for next := range moves {
+				if err := a.storage.MoveFile(work, next.key, next.local); err != nil {
+					select {
+					case failures <- err:
+					default:
+					}
+					cancel()
+				}
+			}
+		}()
+	}
+	for key, local := range files {
+		select {
+		case moves <- move{key, local}:
+		case <-work.Done():
+		}
+	}
+	close(moves)
+	wg.Wait()
+	select {
+	case err := <-failures:
+		return err
+	default:
+		return ctx.Err()
+	}
 }

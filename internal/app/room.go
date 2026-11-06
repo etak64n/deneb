@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 
-	"github.com/etak64n/deneb/internal/config"
 	"github.com/etak64n/deneb/internal/media"
 )
 
@@ -35,8 +34,9 @@ func (a *App) RoomForUpload(size int64) error {
 }
 
 // roomForEncoding checks that the disk can take the stream of a video: its rungs at
-// their bitrates for its duration, a tenth more for the playlists and pictures, twice
-// on local storage, which copies the stream from the work folder, and diskReserve.
+// their bitrates for its duration, a tenth more for the playlists and pictures, and
+// diskReserve. The stream moves from the work folder into the storage, which takes
+// no more room on the volume.
 func (a *App) roomForEncoding(probe media.Probe, rungs []media.Rung) error {
 	free, ok := freeSpace(a.cfg.DataDir)
 	if !ok {
@@ -46,11 +46,7 @@ func (a *App) roomForEncoding(probe media.Probe, rungs []media.Rung) error {
 	for _, rung := range rungs {
 		bitrate += (rung.VideoKbps + rung.AudioKbps) * 1000
 	}
-	need := uint64(float64(bitrate) / 8 * probe.Duration * 1.1)
-	if a.cfg.Storage == config.StorageLocal {
-		need *= 2
-	}
-	need += diskReserve
+	need := uint64(float64(bitrate)/8*probe.Duration*1.1) + diskReserve
 	if free >= need {
 		return nil
 	}
