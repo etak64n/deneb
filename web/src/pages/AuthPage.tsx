@@ -9,6 +9,7 @@ export function AuthPage({ setup, onSignedIn }: { setup: boolean; onSignedIn: ()
   useTitle(setup ? "Create the administrator" : "Sign in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [setupCode, setSetupCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -16,7 +17,7 @@ export function AuthPage({ setup, onSignedIn }: { setup: boolean; onSignedIn: ()
     event.preventDefault();
     setBusy(true);
     setError("");
-    (setup ? api.setup(email, password) : api.login(email, password))
+    (setup ? api.setup(email, password, setupCode) : api.login(email, password))
       .then(onSignedIn)
       .then((signedIn) => {
         // A cookie marked Secure is dropped when deneb is opened over plain HTTP.
@@ -57,6 +58,20 @@ export function AuthPage({ setup, onSignedIn }: { setup: boolean; onSignedIn: ()
           />
           {setup && <span className="text-xs text-subdued">At least 12 characters</span>}
         </label>
+        {setup && (
+          <label className="grid gap-1.5">
+            <span className="text-sm font-semibold text-strong">Setup code</span>
+            <input
+              required
+              autoComplete="off"
+              spellCheck={false}
+              value={setupCode}
+              onChange={(event) => setSetupCode(event.target.value)}
+              className="field font-mono uppercase"
+            />
+            <span className="text-xs text-subdued">In the log of deneb</span>
+          </label>
+        )}
         {error && <ErrorBox>{error}</ErrorBox>}
         <Button type="submit" variant="primary" disabled={busy} className="w-full">
           {setup ? "Create and sign in" : "Sign in"}

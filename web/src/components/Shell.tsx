@@ -84,10 +84,10 @@ export function Shell({ user, onLogout, children }: { user: User; onLogout: () =
       </header>
       <div className="lg:pl-sidebar">
         <main ref={main} id="main" tabIndex={-1} className="mx-auto grid max-w-[1280px] gap-10 px-4 pt-6 pb-16 outline-none sm:px-6 lg:px-10 lg:pt-8">
-          <UploadList />
           {children}
         </main>
       </div>
+      <UploadList />
       <DropCover />
     </>
   );
@@ -108,7 +108,10 @@ function UploadList() {
   if (items.length === 0) return null;
   const settled = items.filter((item) => item.state === "done" || item.state === "failed");
   return (
-    <section aria-label="Uploads" className="grid gap-2 rounded-md p-3 shadow-[0_0_0_1px_var(--ds-border)]">
+    <section
+      aria-label="Uploads"
+      className="fixed right-4 bottom-4 z-30 grid max-h-[50vh] w-[min(26rem,calc(100%-2rem))] gap-2 overflow-y-auto rounded-lg bg-surface p-3 shadow-popover"
+    >
       {items.map((item) => (
         <UploadRow key={item.key} item={item} onCancel={() => cancel(item.key)} onRetry={() => retry(item.key)} />
       ))}

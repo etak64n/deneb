@@ -49,9 +49,14 @@ function escapeAttribute(text: string): string {
   return text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
-/** An iframe for other sites, in the shape of the video. */
+function greatestDivisor(a: number, b: number): number {
+  return b === 0 ? a : greatestDivisor(b, a % b);
+}
+
+/** An iframe for other sites, in the shape of the video, such as 16/9. */
 function embedCode(video: Video, playback: Playback): string {
-  const ratio = video.width > 0 && video.height > 0 ? `${video.width}/${video.height}` : "16/9";
+  const divisor = greatestDivisor(video.width, video.height);
+  const ratio = video.width > 0 && video.height > 0 ? `${video.width / divisor}/${video.height / divisor}` : "16/9";
   return `<iframe src="${escapeAttribute(playback.embed_url)}" title="${escapeAttribute(video.title || "Video")}" style="width:100%;aspect-ratio:${ratio};border:0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>`;
 }
 

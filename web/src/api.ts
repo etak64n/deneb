@@ -119,7 +119,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   authState: () => request<AuthState>("GET", "/auth/state"),
-  setup: (email: string, password: string) => request<{ user: User }>("POST", "/auth/setup", { email, password }),
+  setup: (email: string, password: string, setupCode: string) =>
+    request<{ user: User }>("POST", "/auth/setup", { email, password, setup_code: setupCode }),
   login: (email: string, password: string) => request<{ user: User }>("POST", "/auth/login", { email, password }),
   logout: () => request<void>("POST", "/auth/logout"),
 
