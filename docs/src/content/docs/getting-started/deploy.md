@@ -15,8 +15,8 @@ compose.yaml in the repository runs deneb behind the proxy.
 # forwards to port 8080 of this host. Replace the address with your own.
 services:
   deneb:
-    # 0.3 follows the fixes of 0.3; latest follows every release.
-    image: ghcr.io/etak64n/deneb:0.3
+    # 0.4 follows the fixes of 0.4; latest follows every release.
+    image: ghcr.io/etak64n/deneb:0.4
     restart: unless-stopped
     # deneb takes up to 20 seconds to finish the requests that run and to put its jobs
     # back in the queue. Docker would kill it after 10.
