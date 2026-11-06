@@ -158,9 +158,8 @@ function UploadRow({ item, onCancel, onRetry }: { item: UploadItem; onCancel: ()
           )
         )}
       </div>
-      {item.state === "failed" ? (
-        <p className="text-xs font-semibold break-words text-critical-ink">{item.error}</p>
-      ) : (
+      {item.state === "failed" && <p className="text-xs font-semibold break-words text-critical-ink">{item.error}</p>}
+      {item.state !== "failed" && item.state !== "done" && (
         <div
           role="progressbar"
           aria-label={item.name}

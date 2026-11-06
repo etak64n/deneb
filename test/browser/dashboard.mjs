@@ -30,6 +30,11 @@ function watch(page) {
   page.on("pageerror", (error) => problems.push(`page error on ${page.url()}: ${error.message}`));
   page.on("response", (response) => {
     if (response.status() >= 400) problems.push(`${response.status()} for ${response.request().method()} ${response.url()}`);
+    // A picture whose URL is wrong can come back as the dashboard itself, with 200.
+    const type = response.headers()["content-type"] ?? "";
+    if (response.request().resourceType() === "image" && type.startsWith("text/html")) {
+      problems.push(`a page instead of a picture for ${response.url()}`);
+    }
   });
   page.on("requestfailed", (request) => {
     // A player cancels the segments it no longer needs, and a page its images when it goes.
