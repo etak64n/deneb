@@ -1,5 +1,6 @@
 # Checks deneb on every push to main and every pull request: the Go code with its
-# tests, the dashboard, and the Docker image, which test/e2e.sh runs end to end.
+# tests, the dashboard, and the Docker image, which test/e2e.sh runs end to end over
+# the API and test/browser/run.sh through the dashboard.
 name: CI
 
 on:
@@ -75,3 +76,29 @@ jobs:
           cache-to: type=gha,mode=max
 
       - run: ./test/e2e.sh deneb:e2e
+
+      # The same image again, through its dashboard in Google Chrome, which the runner has.
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: test/browser/package.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: test/browser/pnpm-lock.yaml
+
+      - name: Install espeak-ng
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends espeak-ng
+
+      - run: pnpm --dir test/browser install --frozen-lockfile
+
+      - run: ./test/browser/run.sh deneb:e2e
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: screenshots
+          path: test/browser/screenshots/
+          if-no-files-found: ignore
+          retention-days: 14

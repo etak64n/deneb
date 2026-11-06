@@ -8,3 +8,7 @@
 # The binary and the data of a local run.
 /deneb
 /data/
+
+# The browser test and its screenshots.
+/test/browser/node_modules/
+/test/browser/screenshots/
