@@ -34,6 +34,23 @@ deneb detects the spoken language by default. `DENEB_CAPTIONS_LANGUAGE` sets one
 Transcription takes CPU time after each encoding.
 `DENEB_WORKERS` sets how many videos deneb works on at once, and `DENEB_THREADS` how many threads each one uses.
 
+## Memory
+
+whisper.cpp holds its model in memory while it transcribes a video.
+The README of whisper.cpp gives this memory for each model.
+
+- tiny: about 273 MB
+- base: about 388 MB
+- small: about 852 MB
+- medium: about 2.1 GB
+- large: about 3.9 GB. The README gives one figure for its large models, and none for large-v3-turbo.
+
+Each worker that `DENEB_WORKERS` adds transcribes with a model of its own, so two workers can need twice the memory.
+A limit on the memory of the container, such as `mem_limit` in compose.yaml, needs room for the model.
+
+- Without the room, the system stops whisper.cpp when it runs out of memory.
+- deneb then runs the transcription again after one minute and after ten minutes (internal/app/jobs.go), and marks the captions of the video as failed after the third attempt.
+
 ## Where the captions appear
 
 - The captions are a WebVTT file, the format of timed text for web players.
