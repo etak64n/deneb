@@ -78,7 +78,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
-      # The caches are those of the release workflow, so that each warms the other.
+      # CI keeps a cache for each architecture. Releases build without it.
       - uses: docker/build-push-action@v7
         with:
           context: .

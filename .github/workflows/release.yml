@@ -1,6 +1,7 @@
 # Publishes the image to ghcr.io/etak64n/deneb for every tag v*, for amd64 and
 # arm64. Each architecture builds on a runner of its own, which is far faster than
-# emulation, and a last job joins them under one tag.
+# emulation, and runs the end-to-end tests there. A last job joins the images that
+# passed under one tag.
 name: Release
 
 on:
@@ -23,7 +24,7 @@ jobs:
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
@@ -45,8 +46,15 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: VERSION=${{ github.ref_name }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,scope=${{ matrix.platform }},mode=max
+          # A release builds from nothing. The cache of CI holds what any job on main
+          # wrote, and an image that ships takes the packages of its own day.
+          no-cache: true
+
+      # The image that the tags will name runs the end-to-end tests first. An image that
+      # fails them stays in the registry under its digest alone, and the job stops here.
+      - run: ./test/e2e.sh "${{ env.IMAGE }}@${{ steps.build.outputs.digest }}" local
+
+      - run: ./test/e2e.sh "${{ env.IMAGE }}@${{ steps.build.outputs.digest }}" s3
 
       - name: Keep the digest
         run: |
