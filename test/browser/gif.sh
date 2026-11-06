@@ -14,8 +14,8 @@ ffmpeg() {
 }
 # An MP4 keeps every frame at a fraction of the size of a GIF.
 ffmpeg -i demo.webm -c:v libx264 -pix_fmt yuv420p -crf 22 -preset slow -movflags +faststart -an demo.mp4
-# A GIF of 960 pixels at 10 frames a second, without the blank page before the first
+# A GIF of 960 pixels at 8 frames a second, without the blank page before the first
 # one, and with 128 colors made for this recording, which keeps it a few megabytes.
-ffmpeg -ss 0.5 -i demo.webm -vf "fps=10,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" demo.gif
+ffmpeg -ss 0.5 -i demo.webm -vf "fps=8,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" demo.gif
 ffmpeg -i demo.webm -vf "fps=1/3,scale=960:-1" still_%02d.png
 ls -l "$dir"

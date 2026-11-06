@@ -131,7 +131,7 @@ await page.locator("video").evaluate((video) => {
   for (const track of video.textTracks) if (track.kind === "subtitles") track.mode = "showing";
   return video.play();
 });
-await pause(3500);
+await pause(3000);
 
 console.log("Preview pictures on the seek bar");
 await maybe("the seek bar", async () => {
