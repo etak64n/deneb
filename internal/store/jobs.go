@@ -49,17 +49,19 @@ func (s *Store) Enqueue(ctx context.Context, kind, ref string, now time.Time) er
 }
 
 // ClaimJob takes the oldest queued job of the kinds that is due, and marks it as running.
-// It returns nil when no job is waiting.
+// Encodings come before captions, so that a new video gets ready without waiting for the
+// captions of a long one. It returns nil when no job is waiting.
 func (s *Store) ClaimJob(ctx context.Context, kinds []string, now time.Time) (*Job, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",")
 	args := []any{JobRunning, millis(now), JobQueued, millis(now)}
 	for _, kind := range kinds {
 		args = append(args, kind)
 	}
+	args = append(args, JobCaptions)
 	var job Job
 	err := s.db.QueryRowContext(ctx,
 		`UPDATE jobs SET status = ?, attempts = attempts + 1, updated_at = ?
-		 WHERE id = (SELECT id FROM jobs WHERE status = ? AND run_after <= ? AND kind IN (`+placeholders+`) ORDER BY run_after, id LIMIT 1)
+		 WHERE id = (SELECT id FROM jobs WHERE status = ? AND run_after <= ? AND kind IN (`+placeholders+`) ORDER BY kind = ?, run_after, id LIMIT 1)
 		 RETURNING id, kind, ref, attempts`, args...).Scan(&job.ID, &job.Kind, &job.Ref, &job.Attempts)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil

@@ -36,6 +36,7 @@ Transcription takes CPU time after each encoding.
 `DENEB_WORKERS` sets how many videos deneb works on at once, and `DENEB_THREADS` how many threads each one uses.
 
 - whisper.cpp runs at a lower priority than deneb, so the API and playback take the CPU first (internal/media/priority_unix.go).
+- A worker takes an encoding before captions, so that a new video gets ready without waiting for the captions of a long one (internal/store/jobs.go).
 - A transcription stops after ten times the length of the video, and at least an hour, which only one that hangs takes (internal/app/process.go).
 - On amd64, the image has whisper.cpp built twice, once with AVX2 and once for any x86-64, and runs the build that the CPU can (Dockerfile). The captions then work on CPUs without AVX2 too, such as those of many NAS.
 

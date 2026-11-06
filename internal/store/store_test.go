@@ -408,3 +408,17 @@ func TestRetryVideoAndCaptions(t *testing.T) {
 		t.Errorf("captions after a retry %q", video.CaptionsStatus)
 	}
 }
+
+// A worker takes an encoding before captions, even older ones, so that a new video
+// gets ready without waiting for the captions of a long one.
+func TestEncodingsComeBeforeCaptions(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	s.Enqueue(ctx, JobCaptions, "vid_old", start)
+	s.Enqueue(ctx, JobTranscode, "vid_new", start.Add(time.Minute))
+	first, _ := s.ClaimJob(ctx, []string{JobTranscode, JobCaptions}, start.Add(time.Minute))
+	second, _ := s.ClaimJob(ctx, []string{JobTranscode, JobCaptions}, start.Add(time.Minute))
+	if first == nil || first.Kind != JobTranscode || second == nil || second.Kind != JobCaptions {
+		t.Errorf("first %+v, second %+v", first, second)
+	}
+}
