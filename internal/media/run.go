@@ -50,6 +50,7 @@ func run(ctx context.Context, name string, args []string, onLine func(string)) e
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start %s: %w", name, err)
 	}
+	lowerPriority(cmd.Process.Pid)
 	if stdout != nil {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {

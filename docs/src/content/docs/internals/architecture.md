@@ -23,6 +23,7 @@ A video goes through six steps.
 - A file arrives in one PUT to a signed URL, as files go into buckets, or with tus (internal/server/uploads.go). tus resumes a file of several gigabytes where a lost connection stopped it, rather than starting over.
 - Each video has one upload, under the ID of the video, and every request about it needs its token. The file stays where it arrived until the encoder has stored it, so a restart of deneb loses no upload.
 - One ffmpeg run writes every quality (internal/media/hls.go). deneb decodes the file once rather than once per quality.
+- ffmpeg and whisper.cpp run at a niceness of 10, below deneb itself (internal/media/priority_unix.go). The API and playback then take the CPU first while a video encodes, and with nothing else to do, the encoders still take all of it.
 - Key frames fall every two seconds, and segments are four seconds long. The qualities line up, so a player can switch at any segment.
 - The segments are MPEG-TS, which every HLS player plays: Safari, hls.js, Video.js, and the players of iOS and Android.
 - No quality is larger than its source (internal/media/ladder.go). A larger quality would cost bandwidth and show no more detail.
