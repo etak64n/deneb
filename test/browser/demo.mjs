@@ -1,8 +1,9 @@
 // Records a short demo of the API of a running deneb, in a page with a terminal on the
-// left and a site on the right. The terminal creates a video with curl, sends its file
+// left and a browser on the right. The terminal creates a video with curl, sends its file
 // to its upload URL in one PUT, follows the encoding, receives the signed webhooks, and
-// gets the signed URLs; the site then embeds the video, which plays with its captions. Every request,
-// answer, and webhook is real; the terminal shows the answers filtered as its jq says.
+// gets the signed URLs; the browser then opens the embed URL, which plays the video with
+// its captions. Every request, answer, and webhook is real; the terminal shows the
+// answers filtered as its jq says.
 // It writes the recording as demo.webm.
 //
 // Usage: node demo.mjs <deneb URL> <folder of .mp4 clips> <output folder>
@@ -95,11 +96,10 @@ const scene = `<!doctype html>
   .prompt, .ok { color: #7ee787; } .comment, .dim { color: #8b9bb4; } .key { color: #79c0ff; } .string { color: #a5d6ff; } .event { color: #ffa657; }
   .browser { background: #fff; }
   .browser .bar { background: #f3f5f8; border-bottom: 1px solid #e3e8ee; }
-  .url { flex: 1; margin-left: 8px; padding: 3px 12px; border-radius: 6px; background: #fff; color: #5b6b80; box-shadow: 0 0 0 1px #e3e8ee; }
-  .site { display: grid; align-content: start; gap: 14px; padding: 22px 26px; }
-  .site h1 { margin: 0; font-size: 24px; line-height: 32px; }
-  .line { height: 10px; border-radius: 5px; background: #e9edf2; }
-  #player { display: grid; place-items: center; overflow: hidden; aspect-ratio: 16 / 9; border-radius: 8px; background: #e9edf2; color: #8792a2; font-size: 14px; }
+  .url { flex: 1; min-width: 0; margin-left: 8px; padding: 3px 12px; overflow: hidden; border-radius: 6px; background: #fff; color: #8792a2;
+    white-space: nowrap; text-overflow: ellipsis; box-shadow: 0 0 0 1px #e3e8ee; }
+  .url.filled { color: #1a2c44; }
+  #player { display: grid; flex: 1; place-items: center; overflow: hidden; background: #fff; color: #8792a2; font-size: 14px; }
   #player iframe { width: 100%; height: 100%; border: 0; }
   #caption { position: fixed; top: 20px; left: 50%; z-index: 10; transform: translateX(-50%); padding: 8px 18px; border-radius: 8px;
     background: #1a2c44; color: #fff; font-size: 17px; font-weight: 600; white-space: nowrap; box-shadow: 0 6px 20px rgb(0 0 0 / .18);
@@ -115,15 +115,8 @@ const scene = `<!doctype html>
     <pre id="term"></pre>
   </div>
   <div class="window browser">
-    <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><div class="url">your-site.example/videos/welcome</div></div>
-    <div class="site">
-      <h1>Welcome to deneb</h1>
-      <div class="line" style="width:92%"></div>
-      <div class="line" style="width:74%"></div>
-      <div id="player">The video appears here</div>
-      <div class="line" style="width:86%"></div>
-      <div class="line" style="width:62%"></div>
-    </div>
+    <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><div class="url" id="address">Enter an address</div></div>
+    <div id="player">The embed URL opens here</div>
   </div>
 </div>
 <div id="caption"></div>
@@ -181,7 +174,14 @@ const scene = `<!doctype html>
       line.innerHTML = html;
       term.scrollTop = term.scrollHeight;
     },
+    // Puts a URL in the address bar of the browser on the right.
+    address(url) {
+      element("address").textContent = url;
+      element("address").classList.add("filled");
+    },
+    // Opens the embed page in the browser, which fills it on black, as a tab would.
     embed(url) {
+      element("player").style.background = "#000";
       element("player").innerHTML = '<iframe allow="autoplay; fullscreen; picture-in-picture" src="' + url + '"></iframe>';
     },
   };
@@ -292,8 +292,13 @@ await pause(300);
 await call("print", highlight({ status: ready.status, captions: ready.captions, embed_url: ready.playback.embed_url }));
 await pause(1800);
 
-console.log("Embed the video in the site");
-await call("caption", "Embed it in any site, with its captions");
+console.log("Open the embed URL in the browser");
+await call("caption", "Open the embed URL: a player page, ready for an iframe");
+// The address bar takes the embed URL that the terminal printed.
+await click(page.locator("#address"));
+await pause(300);
+await call("address", ready.playback.embed_url);
+await pause(900);
 await call("embed", ready.playback.embed_url);
 const frame = page.frameLocator("#player iframe");
 await frame.locator("video").waitFor({ state: "attached", timeout: 30_000 });
@@ -305,9 +310,9 @@ await frame.locator("video").evaluate((element) => {
   for (const track of element.textTracks) if (track.kind === "subtitles") track.mode = "showing";
   return element.play();
 });
-// Out of the way of the captions.
+// Out of the way of the captions, in the black above the picture.
 const player = await page.locator("#player").boundingBox();
-await glide(player.x + player.width * 0.8, player.y + player.height + 60, 25);
+await glide(player.x + player.width * 0.85, player.y + 50, 25);
 await pause(3800);
 
 console.log("Preview pictures on the seek bar");
