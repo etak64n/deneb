@@ -29,13 +29,13 @@ func (s *Server) newTus() (*handler.Handler, error) {
 		BasePath:                "/v1/uploads/",
 		StoreComposer:           composer,
 		MaxSize:                 s.app.Config().MaxUploadSize,
-		NotifyCompleteUploads:   true,
 		RespectForwardedHeaders: true,
 		DisableDownload:         true,
 		DisableConcatenation:    true,
 		// tusd logs every request at the info level; keep only its warnings and errors.
-		Logger:                  expslog.New(expslog.NewJSONHandler(os.Stdout, &expslog.HandlerOptions{Level: expslog.LevelWarn})),
-		PreUploadCreateCallback: s.checkUpload,
+		Logger:                    expslog.New(expslog.NewJSONHandler(os.Stdout, &expslog.HandlerOptions{Level: expslog.LevelWarn})),
+		PreUploadCreateCallback:   s.checkUpload,
+		PreFinishResponseCallback: s.uploadFinished,
 	})
 }
 
@@ -56,46 +56,35 @@ func (s *Server) checkUpload(hook handler.HookEvent) (handler.HTTPResponse, hand
 	if video.Status != store.VideoWaiting {
 		return handler.HTTPResponse{}, handler.FileInfoChanges{}, handler.NewError("ERR_VIDEO_UPLOADED", "the video already has its file", http.StatusConflict)
 	}
+	// A video has one upload, under its own ID: a token cannot start many, and the
+	// encoder finds the file by the video alone. An earlier upload that did not
+	// finish, as when the client lost the answer to its POST, gives way to this one.
+	s.app.RemoveUpload(videoID)
 	// Keep the ID and the file name, and drop the token, which the upload no longer needs.
-	return handler.HTTPResponse{}, handler.FileInfoChanges{MetaData: handler.MetaData{
+	return handler.HTTPResponse{}, handler.FileInfoChanges{ID: videoID, MetaData: handler.MetaData{
 		"video_id": videoID,
 		"filename": hook.Upload.MetaData["filename"],
 	}}, nil
 }
 
-// RunUploads takes each upload that finishes, one at a time, until ctx ends. The
-// first finished upload of a video becomes its source; any later one is removed.
-func (s *Server) RunUploads(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case event := <-s.tus.CompleteUploads:
-			s.finishUpload(ctx, event.Upload)
+// uploadFinished queues the encoding of the video before tusd answers the last part
+// of its file, so that a client never sees an upload succeed that deneb did not record.
+func (s *Server) uploadFinished(hook handler.HookEvent) (handler.HTTPResponse, error) {
+	videoID := hook.Upload.ID
+	ctx := context.WithoutCancel(hook.Context)
+	err := s.app.UploadFinished(ctx, videoID, hook.Upload.Size)
+	if errors.Is(err, store.ErrNotFound) {
+		// The video was deleted meanwhile, or already has its file.
+		if _, lookErr := s.app.Store().Video(ctx, videoID); errors.Is(lookErr, store.ErrNotFound) {
+			s.app.RemoveUpload(videoID)
+			return handler.HTTPResponse{}, handler.NewError("ERR_VIDEO_NOT_FOUND", "the video was deleted", http.StatusNotFound)
 		}
+		return handler.HTTPResponse{}, nil
 	}
-}
-
-func (s *Server) finishUpload(ctx context.Context, upload handler.FileInfo) {
-	binPath := upload.Storage[filestore.StorageKeyPath]
-	infoPath := upload.Storage[filestore.StorageKeyInfoPath]
-	defer os.Remove(infoPath)
-	videoID := upload.MetaData["video_id"]
-	log := s.log.With("video", videoID, "upload", upload.ID)
-
-	video, err := s.app.Store().Video(ctx, videoID)
-	if err != nil || video.Status != store.VideoWaiting {
-		log.Warn("removed an upload whose video is gone or already has its file")
-		os.Remove(binPath)
-		return
+	if err != nil {
+		s.log.Error("queue an uploaded video", "video", videoID, "error", err)
+		return handler.HTTPResponse{}, err
 	}
-	if err := s.app.CompleteUpload(ctx, videoID, binPath, upload.Size); err != nil {
-		log.Error("store an upload", "error", err)
-		if failErr := s.app.Store().FailVideo(context.WithoutCancel(ctx), videoID, err.Error(), s.app.Now()); failErr != nil {
-			log.Error("record a failed upload", "error", failErr)
-		}
-		os.Remove(binPath)
-		return
-	}
-	log.Info("received the file of a video", "bytes", upload.Size)
+	s.log.Info("received the file of a video", "video", videoID, "bytes", hook.Upload.Size)
+	return handler.HTTPResponse{}, nil
 }

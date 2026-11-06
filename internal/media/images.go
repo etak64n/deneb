@@ -9,13 +9,16 @@ import (
 	"strings"
 )
 
-// Poster writes a still of the video at a tenth of its length as a JPEG, no wider than 1280 pixels.
-func Poster(ctx context.Context, ffmpeg, source string, duration float64, outPath string) error {
-	at := math.Min(math.Max(duration*0.1, 0), math.Max(duration-0.1, 0))
+// Poster writes a still of the video at a tenth of its length as a JPEG in the shape
+// that the video is displayed, from the probe, and no wider than 1280 pixels.
+func Poster(ctx context.Context, ffmpeg, source string, probe Probe, outPath string) error {
+	at := math.Min(math.Max(probe.Duration*0.1, 0), math.Max(probe.Duration-0.1, 0))
+	width := even(min(probe.Width, 1280))
+	height := even(int(math.Round(float64(width) * float64(probe.Height) / float64(probe.Width))))
 	return run(ctx, ffmpeg, []string{
 		"-hide_banner", "-nostdin", "-y",
 		"-ss", fmt.Sprintf("%.3f", at), "-i", source,
-		"-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "3",
+		"-frames:v", "1", "-vf", fmt.Sprintf("scale=%d:%d,setsar=1", width, height), "-q:v", "3",
 		outPath,
 	}, nil)
 }

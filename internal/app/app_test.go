@@ -12,6 +12,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -180,18 +182,30 @@ func TestSetupAndLogin(t *testing.T) {
 	if required, _ := a.SetupRequired(ctx); !required {
 		t.Fatal("setup is not required on a new server")
 	}
-	if _, _, err := a.Setup(ctx, "admin@example.com", "short"); err == nil {
+	code := a.SetupCode()
+	if len(code) != 9 || code[4] != '-' {
+		t.Fatalf("setup code %q", code)
+	}
+	if _, _, err := a.Setup(ctx, "admin@example.com", "correct horse battery", "AAAA-AAAA"); !errors.Is(err, ErrInvalidSetupCode) {
+		t.Errorf("a wrong setup code: %v", err)
+	}
+	if _, _, err := a.Setup(ctx, "admin@example.com", "short", code); err == nil {
 		t.Error("a short password was accepted")
 	}
-	if _, _, err := a.Setup(ctx, "not an email", "correct horse battery"); err == nil {
+	if _, _, err := a.Setup(ctx, "not an email", "correct horse battery", code); err == nil {
 		t.Error("an invalid email was accepted")
 	}
-	user, token, err := a.Setup(ctx, " Admin@Example.com ", "correct horse battery")
+	// The code works in lower case and without its dash.
+	typed := strings.ToLower(strings.ReplaceAll(code, "-", ""))
+	user, token, err := a.Setup(ctx, " Admin@Example.com ", "correct horse battery", typed)
 	if err != nil || user.Email != "admin@example.com" || token == "" {
 		t.Fatalf("setup: %+v, %q, %v", user, token, err)
 	}
-	if _, _, err := a.Setup(ctx, "other@example.com", "correct horse battery"); err == nil {
-		t.Error("a second setup succeeded")
+	if a.SetupCode() != "" {
+		t.Error("the setup code outlived the setup")
+	}
+	if _, _, err := a.Setup(ctx, "other@example.com", "correct horse battery", code); !errors.Is(err, ErrSetupDone) {
+		t.Errorf("a second setup: %v", err)
 	}
 	if session, err := a.SessionUser(ctx, token); err != nil || session.ID != user.ID {
 		t.Errorf("session %+v, %v", session, err)
@@ -240,20 +254,132 @@ func TestAPIKeys(t *testing.T) {
 	}
 }
 
-func TestDeleteVideoStopsItsJob(t *testing.T) {
+func TestDeleteVideoStopsItsJobs(t *testing.T) {
 	ctx := context.Background()
 	a := newApp(t)
 	a.store.CreateVideo(ctx, "vid_a", "", a.now())
-	stopped := false
-	a.cancels["vid_a"] = func() { stopped = true }
+	stopped := map[string]bool{}
+	// An encoding and the captions of the video, and a job of another video.
+	a.running[1] = runningJob{video: "vid_a", cancel: func() { stopped["transcode"] = true }}
+	a.running[2] = runningJob{video: "vid_a", cancel: func() { stopped["captions"] = true }}
+	a.running[3] = runningJob{video: "vid_b", cancel: func() { stopped["other"] = true }}
 	if err := a.DeleteVideo(ctx, "vid_a"); err != nil {
 		t.Fatal(err)
 	}
-	if !stopped {
-		t.Error("the job of the deleted video kept running")
+	if !stopped["transcode"] || !stopped["captions"] || stopped["other"] {
+		t.Errorf("stopped %v", stopped)
 	}
 	if err := a.DeleteVideo(ctx, "vid_a"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("second delete: %v", err)
+	}
+}
+
+func TestUploadFinished(t *testing.T) {
+	ctx := context.Background()
+	a := newApp(t)
+	a.store.CreateVideo(ctx, "vid_a", "", a.now())
+	if err := a.UploadFinished(ctx, "vid_a", 5); err != nil {
+		t.Fatal(err)
+	}
+	if video, _ := a.store.Video(ctx, "vid_a"); video.Status != store.VideoQueued || video.SourceSize != 5 {
+		t.Errorf("video %+v", video)
+	}
+	if job, _ := a.store.ClaimJob(ctx, []string{store.JobTranscode}, a.now()); job == nil || job.Ref != "vid_a" {
+		t.Errorf("no encoding was queued: %+v", job)
+	}
+	// A second report of the same upload, and one of a deleted video, change nothing.
+	if err := a.UploadFinished(ctx, "vid_a", 5); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a second report: %v", err)
+	}
+	if err := a.UploadFinished(ctx, "vid_gone", 5); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a deleted video: %v", err)
+	}
+}
+
+// An upload whose last part arrived as deneb stopped is queued at the next start.
+func TestRecoverUploads(t *testing.T) {
+	ctx := context.Background()
+	a := newApp(t)
+	os.MkdirAll(filepath.Join(a.cfg.DataDir, "uploads"), 0o755)
+	for id, offset := range map[string]int{"vid_done": 5, "vid_partial": 3} {
+		a.store.CreateVideo(ctx, id, "", a.now())
+		os.WriteFile(a.UploadPath(id), []byte("12345")[:offset], 0o644)
+		os.WriteFile(a.UploadPath(id)+".info", []byte(fmt.Sprintf(`{"ID":%q,"Size":5,"Offset":%d}`, id, offset)), 0o644)
+	}
+	a.recoverUploads(ctx)
+	if video, _ := a.store.Video(ctx, "vid_done"); video.Status != store.VideoQueued {
+		t.Errorf("the finished upload is %s", video.Status)
+	}
+	if video, _ := a.store.Video(ctx, "vid_partial"); video.Status != store.VideoWaiting {
+		t.Errorf("the unfinished upload is %s", video.Status)
+	}
+}
+
+// A file that is not a video fails at once, since another attempt cannot fix it.
+func TestFileThatIsNotAVideoFailsAtOnce(t *testing.T) {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe is not installed")
+	}
+	ctx := context.Background()
+	a := newApp(t)
+	a.cfg.FFprobePath = "ffprobe"
+	a.store.CreateVideo(ctx, "vid_a", "", a.now())
+	os.MkdirAll(filepath.Join(a.cfg.DataDir, "uploads"), 0o755)
+	os.WriteFile(a.UploadPath("vid_a"), []byte("these bytes are not a video"), 0o644)
+	a.UploadFinished(ctx, "vid_a", 27)
+	runWorkers(t, a)
+	waitFor(t, "the video to fail", func() bool {
+		video, _ := a.store.Video(ctx, "vid_a")
+		return video.Status == store.VideoFailed
+	})
+	if _, err := os.Stat(a.UploadPath("vid_a")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the upload of a failed video stays: %v", err)
+	}
+}
+
+// flakyStorage fails DeletePrefix a number of times before it works.
+type flakyStorage struct {
+	storage.Storage
+	failures int
+}
+
+func (f *flakyStorage) DeletePrefix(ctx context.Context, prefix string) error {
+	if f.failures > 0 {
+		f.failures--
+		return errors.New("the bucket did not answer")
+	}
+	return f.Storage.DeletePrefix(ctx, prefix)
+}
+
+func TestPurgeRetries(t *testing.T) {
+	ctx := context.Background()
+	a := newApp(t)
+	a.storage = &flakyStorage{Storage: a.storage, failures: 1}
+	a.store.CreateVideo(ctx, "vid_a", "", a.now())
+	local := filepath.Join(t.TempDir(), "poster.jpg")
+	os.WriteFile(local, []byte("jpeg"), 0o644)
+	a.storage.PutFile(ctx, "videos/vid_a/poster.jpg", local)
+	stored := filepath.Join(a.cfg.DataDir, "media", "videos", "vid_a", "poster.jpg")
+
+	if err := a.DeleteVideo(ctx, "vid_a"); err != nil {
+		t.Fatal(err)
+	}
+	job, _ := a.store.ClaimJob(ctx, []string{store.JobPurge}, a.now())
+	if job == nil {
+		t.Fatal("deleting the video queued no removal of its files")
+	}
+	a.purgeJob(ctx, job)
+	if _, err := os.Stat(stored); err != nil {
+		t.Fatalf("the file went although the storage failed: %v", err)
+	}
+	// The removal runs again a minute later, and the storage answers this time.
+	again, _ := a.store.ClaimJob(ctx, []string{store.JobPurge}, a.now().Add(61*time.Second))
+	if again == nil || again.ID != job.ID {
+		t.Fatalf("no retry of the removal: %+v", again)
+	}
+	a.purgeJob(ctx, again)
+	if _, err := os.Stat(stored); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the file of the deleted video stays: %v", err)
 	}
 }
 

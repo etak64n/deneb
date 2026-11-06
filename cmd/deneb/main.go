@@ -59,6 +59,11 @@ func run(log *slog.Logger) error {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return fmt.Errorf("create the data folder: %w", err)
 	}
+	lock, err := lockDataDir(cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	db, err := store.Open(ctx, filepath.Join(cfg.DataDir, "deneb.db"))
 	if err != nil {
 		return err
@@ -99,13 +104,15 @@ func run(log *slog.Logger) error {
 		IdleTimeout:       2 * time.Minute,
 	}
 
-	done := make(chan struct{}, 2)
-	go func() { deneb.Run(ctx); done <- struct{}{} }()
-	go func() { srv.RunUploads(ctx); done <- struct{}{} }()
+	done := make(chan struct{})
+	go func() { deneb.Run(ctx); close(done) }()
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpServer.ListenAndServe() }()
 	log.Info("deneb is running", "version", version, "listen", cfg.Listen, "storage", cfg.Storage,
 		"workers", cfg.Workers, "captions", cfg.Captions.Enabled)
+	if code := deneb.SetupCode(); code != "" {
+		log.Info("deneb has no administrator yet; create one in the dashboard with this setup code", "setup_code", code)
+	}
 
 	select {
 	case err := <-serveErr:
@@ -119,7 +126,6 @@ func run(log *slog.Logger) error {
 	shutdown, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	httpServer.Shutdown(shutdown)
-	<-done
 	<-done
 	return nil
 }

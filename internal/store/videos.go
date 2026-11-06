@@ -154,6 +154,13 @@ func (s *Store) QueueVideo(ctx context.Context, id string, sourceSize int64, now
 }
 
 // StartVideo marks a video as processing.
+// RequeueVideo puts a video whose encoding failed for a reason that may pass back in
+// the queue, with the reason, until its job runs again.
+func (s *Store) RequeueVideo(ctx context.Context, id, reason string, now time.Time) error {
+	return expectRow(s.db.ExecContext(ctx, `UPDATE videos SET status = ?, progress = 0, error = ?, updated_at = ? WHERE id = ?`,
+		VideoQueued, reason, millis(now), id))
+}
+
 func (s *Store) StartVideo(ctx context.Context, id string, now time.Time) error {
 	return expectRow(s.db.ExecContext(ctx, `UPDATE videos SET status = ?, progress = 0, error = '', updated_at = ? WHERE id = ?`,
 		VideoProcessing, millis(now), id))
@@ -219,7 +226,7 @@ func (s *Store) SetCaptions(ctx context.Context, id, status, language string, no
 }
 
 // DeleteVideo removes a video and the jobs that wait to work on it.
-func (s *Store) DeleteVideo(ctx context.Context, id string) error {
+func (s *Store) DeleteVideo(ctx context.Context, id string, now time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -229,6 +236,10 @@ func (s *Store) DeleteVideo(ctx context.Context, id string) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE ref = ? AND kind IN (?, ?) AND status = ?`, id, JobTranscode, JobCaptions, JobQueued); err != nil {
+		return err
+	}
+	// The files go in a job of their own, which tries again until the storage answers.
+	if err := enqueue(ctx, tx, JobPurge, id, now); err != nil {
 		return err
 	}
 	return tx.Commit()

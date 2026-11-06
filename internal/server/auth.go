@@ -12,6 +12,8 @@ import (
 type credentials struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// SetupCode is what deneb writes to its log until it has an administrator.
+	SetupCode string `json:"setup_code,omitempty"`
 }
 
 type userView struct {
@@ -41,12 +43,24 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "requests of the dashboard need the "+dashboardHeader+" header")
 		return
 	}
+	// The limit of sign-in attempts also keeps anyone from guessing the setup code.
+	if !s.limiter.allow(limitKey(s.clientIP(r)), time.Now()) {
+		writeError(w, http.StatusTooManyRequests, "too many attempts; wait ten minutes")
+		return
+	}
 	var body credentials
 	if !readJSON(w, r, &body) {
 		return
 	}
-	user, token, err := s.app.Setup(r.Context(), body.Email, body.Password)
-	if err != nil {
+	user, token, err := s.app.Setup(r.Context(), body.Email, body.Password, body.SetupCode)
+	switch {
+	case errors.Is(err, app.ErrSetupDone):
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	case errors.Is(err, app.ErrInvalidSetupCode):
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	case err != nil:
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -60,7 +74,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "requests of the dashboard need the "+dashboardHeader+" header")
 		return
 	}
-	if !s.limiter.allow(s.clientIP(r), time.Now()) {
+	if !s.limiter.allow(limitKey(s.clientIP(r)), time.Now()) {
 		writeError(w, http.StatusTooManyRequests, "too many attempts; wait ten minutes")
 		return
 	}

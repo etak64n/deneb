@@ -41,7 +41,7 @@ func (s *Store) CreateFirstUser(ctx context.Context, id, email, passwordHash str
 		return User{}, err
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
-		return User{}, errors.New("an administrator already exists")
+		return User{}, ErrExists
 	}
 	return User{ID: id, Email: email, PasswordHash: passwordHash, CreatedAt: now}, nil
 }

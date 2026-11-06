@@ -43,6 +43,13 @@ func (s *Store) CreateWebhook(ctx context.Context, id, url, secret string, now t
 }
 
 // ListWebhooks returns every endpoint, the newest first.
+// WebhookExists tells whether a webhook exists.
+func (s *Store) WebhookExists(ctx context.Context, id string) (bool, error) {
+	var found bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM webhooks WHERE id = ?)`, id).Scan(&found)
+	return found, err
+}
+
 func (s *Store) ListWebhooks(ctx context.Context) ([]Webhook, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, url, secret, created_at FROM webhooks ORDER BY created_at DESC, id DESC`)
 	if err != nil {
@@ -70,20 +77,35 @@ func (s *Store) DeleteWebhook(ctx context.Context, id string) error {
 // QueueEvent creates a delivery of the event to every webhook, and a job for each.
 // The IDs of the deliveries come from newID.
 func (s *Store) QueueEvent(ctx context.Context, event, payload string, newID func() string, now time.Time) error {
-	hooks, err := s.ListWebhooks(ctx)
-	if err != nil || len(hooks) == 0 {
-		return err
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	// The webhooks are read in the transaction, so that one deleted meanwhile cannot
+	// fail the deliveries to the others.
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM webhooks`)
+	if err != nil {
+		return err
+	}
+	var hooks []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		hooks = append(hooks, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	for _, hook := range hooks {
 		id := newID()
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO webhook_deliveries (id, webhook_id, event, payload, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-			id, hook.ID, event, payload, DeliveryPending, millis(now)); err != nil {
+			id, hook, event, payload, DeliveryPending, millis(now)); err != nil {
 			return err
 		}
 		if err := enqueue(ctx, tx, JobWebhook, id, now); err != nil {
@@ -130,6 +152,13 @@ func (s *Store) RecordDelivery(ctx context.Context, id, status string, responseS
 }
 
 // ListDeliveries returns the latest deliveries to a webhook.
+// DeleteOldDeliveries removes the deliveries that ended before a time.
+func (s *Store) DeleteOldDeliveries(ctx context.Context, before time.Time) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM webhook_deliveries WHERE status IN (?, ?) AND created_at < ?`,
+		DeliveryDelivered, DeliveryFailed, millis(before))
+	return err
+}
+
 func (s *Store) ListDeliveries(ctx context.Context, webhookID string, limit int) ([]Delivery, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, webhook_id, event, payload, status, attempts, response_status, last_error, created_at, delivered_at

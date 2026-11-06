@@ -21,8 +21,20 @@ import (
 )
 
 // webhookRetries are the waits before each new attempt of a delivery. A delivery
-// that still fails after the last one gives up.
+// that still fails after the last one gives up. Removing the files of a deleted video
+// tries again on the same terms.
 var webhookRetries = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour}
+
+// mediaRetries are the waits before each new attempt of an encoding or captions job
+// that failed for a reason that may pass, such as a bucket that did not answer.
+var mediaRetries = []time.Duration{time.Minute, 10 * time.Minute}
+
+// lightWorkers deliver webhooks and remove files, so that a slow endpoint does not
+// hold up the others.
+const lightWorkers = 4
+
+// deliveryHistory is how long deneb keeps the deliveries of webhooks that ended.
+const deliveryHistory = 30 * 24 * time.Hour
 
 // Version is the version of deneb, which webhook requests carry in their User-Agent.
 var Version = "dev"
@@ -47,14 +59,15 @@ func (a *App) waker() chan struct{} {
 	return wake
 }
 
-// Run starts the workers: the encoders, one that delivers webhooks, and one that
-// cleans up. It returns when ctx ends and every worker has stopped.
+// Run starts the workers: the encoders, those that deliver webhooks and remove files,
+// and one that cleans up. It returns when ctx ends and every worker has stopped.
 func (a *App) Run(ctx context.Context) {
 	if count, err := a.store.RequeueRunningJobs(ctx, a.now()); err != nil {
 		a.log.Error("queue the jobs that were running again", "error", err)
 	} else if count > 0 {
 		a.log.Info("queued again the jobs that were running when deneb stopped", "jobs", count)
 	}
+	a.recoverUploads(ctx)
 	var wg sync.WaitGroup
 	start := func(kinds ...string) {
 		wg.Add(1)
@@ -66,7 +79,9 @@ func (a *App) Run(ctx context.Context) {
 	for range a.cfg.Workers {
 		start(store.JobTranscode, store.JobCaptions)
 	}
-	start(store.JobWebhook)
+	for range lightWorkers {
+		start(store.JobWebhook, store.JobPurge)
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -100,15 +115,19 @@ func (a *App) work(ctx context.Context, kinds []string) {
 }
 
 func (a *App) runJob(ctx context.Context, job *store.Job) {
-	if job.Kind == store.JobWebhook {
+	switch job.Kind {
+	case store.JobWebhook:
 		a.deliverJob(ctx, job)
+		return
+	case store.JobPurge:
+		a.purgeJob(ctx, job)
 		return
 	}
 	// DeleteVideo stops the job through this context.
 	jobCtx, cancel := context.WithCancel(ctx)
-	a.cancelsMu.Lock()
-	a.cancels[job.Ref] = cancel
-	a.cancelsMu.Unlock()
+	a.runningMu.Lock()
+	a.running[job.ID] = runningJob{video: job.Ref, cancel: cancel}
+	a.runningMu.Unlock()
 	var err error
 	switch job.Kind {
 	case store.JobTranscode:
@@ -116,11 +135,11 @@ func (a *App) runJob(ctx context.Context, job *store.Job) {
 	case store.JobCaptions:
 		err = a.captions(jobCtx, job.Ref)
 	default:
-		err = fmt.Errorf("unknown kind of job %q", job.Kind)
+		err = permanentError{fmt.Errorf("unknown kind of job %q", job.Kind)}
 	}
-	a.cancelsMu.Lock()
-	delete(a.cancels, job.Ref)
-	a.cancelsMu.Unlock()
+	a.runningMu.Lock()
+	delete(a.running, job.ID)
+	a.runningMu.Unlock()
 	cancel()
 	if ctx.Err() != nil {
 		// deneb is stopping. The job stays running and runs again at the next start.
@@ -128,22 +147,92 @@ func (a *App) runJob(ctx context.Context, job *store.Job) {
 	}
 	finish := context.WithoutCancel(ctx)
 	if _, lookErr := a.store.Video(finish, job.Ref); errors.Is(lookErr, store.ErrNotFound) {
-		// The video was deleted while the job ran. Remove what the job stored after
-		// DeleteVideo removed the files.
-		if delErr := a.storage.DeletePrefix(finish, videoPrefix(job.Ref)); delErr != nil {
-			a.log.Error("delete the files of a deleted video", "video", job.Ref, "error", delErr)
+		// The video was deleted while the job ran. What the job stored after the files
+		// of the video were removed goes in another removal.
+		if err := a.store.Enqueue(finish, store.JobPurge, job.Ref, a.now()); err != nil {
+			a.log.Error("queue the removal of the files of a deleted video", "video", job.Ref, "error", err)
 		}
-		err = nil
-	}
-	if err != nil {
-		if failErr := a.store.FailJob(finish, job.ID, err.Error(), a.now()); failErr != nil {
-			a.log.Error("record a failed job", "job", job.ID, "error", failErr)
-		}
+		a.Wake()
+		a.finishJob(finish, job)
 		return
 	}
-	if err := a.store.FinishJob(finish, job.ID, a.now()); err != nil {
+	if err == nil {
+		a.finishJob(finish, job)
+		return
+	}
+	var permanent permanentError
+	if job.Attempts <= len(mediaRetries) && !errors.As(err, &permanent) {
+		a.log.Warn("a job failed and runs again", "kind", job.Kind, "video", job.Ref, "attempt", job.Attempts, "error", err)
+		a.retryMedia(finish, job, err)
+		return
+	}
+	a.log.Error("a job failed", "kind", job.Kind, "video", job.Ref, "attempt", job.Attempts, "error", err)
+	a.failMedia(finish, job, err)
+}
+
+func (a *App) finishJob(ctx context.Context, job *store.Job) {
+	if err := a.store.FinishJob(ctx, job.ID, a.now()); err != nil {
 		a.log.Error("record a finished job", "job", job.ID, "error", err)
 	}
+}
+
+// retryMedia puts the video back in the queue and runs the job again later.
+func (a *App) retryMedia(ctx context.Context, job *store.Job, cause error) {
+	var err error
+	if job.Kind == store.JobTranscode {
+		err = a.store.RequeueVideo(ctx, job.Ref, cause.Error(), a.now())
+	} else {
+		err = a.store.SetCaptions(ctx, job.Ref, store.CaptionsQueued, "", a.now())
+	}
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		a.log.Error("queue a video again", "video", job.Ref, "error", err)
+	}
+	if err := a.store.RetryJob(ctx, job.ID, cause.Error(), a.now().Add(mediaRetries[job.Attempts-1]), a.now()); err != nil {
+		a.log.Error("record a failed job", "job", job.ID, "error", err)
+	}
+}
+
+// failMedia records that the video, or its captions, failed for good.
+func (a *App) failMedia(ctx context.Context, job *store.Job, cause error) {
+	var err error
+	if job.Kind == store.JobTranscode {
+		if err = a.store.FailVideo(ctx, job.Ref, cause.Error(), a.now()); err == nil {
+			a.emit(ctx, EventVideoFailed, job.Ref)
+		}
+		// Its file, if it is still where it arrived, is of no more use.
+		a.RemoveUpload(job.Ref)
+	} else {
+		err = a.store.SetCaptions(ctx, job.Ref, store.CaptionsFailed, "", a.now())
+	}
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		a.log.Error("record a failed video", "video", job.Ref, "error", err)
+	}
+	if err := a.store.FailJob(ctx, job.ID, cause.Error(), a.now()); err != nil {
+		a.log.Error("record a failed job", "job", job.ID, "error", err)
+	}
+}
+
+// purgeJob removes the files of a deleted video: what arrived, what an encoder left,
+// and what the storage holds. It tries again while the storage fails.
+func (a *App) purgeJob(ctx context.Context, job *store.Job) {
+	a.RemoveUpload(job.Ref)
+	os.RemoveAll(a.workDir(job.Ref))
+	err := a.storage.DeletePrefix(ctx, videoPrefix(job.Ref))
+	if ctx.Err() != nil {
+		return // deneb is stopping; the removal runs again at the next start.
+	}
+	finish := context.WithoutCancel(ctx)
+	if err == nil {
+		a.finishJob(finish, job)
+		return
+	}
+	if job.Attempts > len(webhookRetries) {
+		a.log.Error("gave up removing the files of a deleted video", "video", job.Ref, "error", err)
+		a.store.FailJob(finish, job.ID, err.Error(), a.now())
+		return
+	}
+	a.log.Warn("remove the files of a deleted video", "video", job.Ref, "attempt", job.Attempts, "error", err)
+	a.store.RetryJob(finish, job.ID, err.Error(), a.now().Add(webhookRetries[job.Attempts-1]), a.now())
 }
 
 // deliverJob sends one delivery to its webhook, and plans the next attempt if it fails.
@@ -159,6 +248,9 @@ func (a *App) deliverJob(ctx context.Context, job *store.Job) {
 		return
 	}
 	status, err := a.post(ctx, hook, delivery)
+	if ctx.Err() != nil {
+		return // deneb is stopping; the delivery runs again at the next start.
+	}
 	if err == nil {
 		a.store.RecordDelivery(finish, delivery.ID, store.DeliveryDelivered, status, "", a.now())
 		a.store.FinishJob(finish, job.ID, a.now())
@@ -191,7 +283,7 @@ func (a *App) post(ctx context.Context, hook store.Webhook, delivery store.Deliv
 	request.Header.Set("Deneb-Event", delivery.Event)
 	request.Header.Set("Deneb-Delivery", delivery.ID)
 	request.Header.Set("Deneb-Signature", "t="+timestamp+",v1="+hex.EncodeToString(mac.Sum(nil)))
-	response, err := http.DefaultClient.Do(request)
+	response, err := a.client.Do(request)
 	if err != nil {
 		return 0, err
 	}
@@ -217,11 +309,16 @@ func (a *App) housekeep(ctx context.Context) {
 		if err := a.store.DeleteFinishedJobs(ctx, cutoff); err != nil && ctx.Err() == nil {
 			a.log.Warn("delete old jobs", "error", err)
 		}
+		if err := a.store.DeleteOldDeliveries(ctx, a.now().Add(-deliveryHistory)); err != nil && ctx.Err() == nil {
+			a.log.Warn("delete old deliveries of webhooks", "error", err)
+		}
 		if count, err := a.store.DeleteWaitingVideos(ctx, cutoff); err != nil && ctx.Err() == nil {
 			a.log.Warn("delete videos whose file never arrived", "error", err)
 		} else if count > 0 {
 			a.log.Info("deleted videos whose file never arrived", "videos", count)
 		}
+		// An upload whose recording failed, as when the database was busy, is queued here.
+		a.recoverUploads(ctx)
 		// tusd keeps each upload as two files that change with every part that arrives.
 		removeStale(a.log, filepath.Join(a.cfg.DataDir, "uploads"), cutoff)
 		removeStale(a.log, filepath.Join(a.cfg.DataDir, "work"), cutoff)

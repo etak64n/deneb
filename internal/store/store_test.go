@@ -106,16 +106,19 @@ func TestDeleteVideoRemovesQueuedJobs(t *testing.T) {
 	s := open(t)
 	s.CreateVideo(ctx, "vid_a", "", start)
 	s.QueueVideo(ctx, "vid_a", 1, start)
-	if err := s.DeleteVideo(ctx, "vid_a"); err != nil {
+	if err := s.DeleteVideo(ctx, "vid_a", start); err != nil {
 		t.Fatal(err)
 	}
 	if job, err := s.ClaimJob(ctx, []string{JobTranscode}, start); err != nil || job != nil {
 		t.Errorf("the job of a deleted video remains: %+v, %v", job, err)
 	}
+	if job, err := s.ClaimJob(ctx, []string{JobPurge}, start); err != nil || job == nil || job.Ref != "vid_a" {
+		t.Errorf("no job removes the files of the deleted video: %+v, %v", job, err)
+	}
 	if _, err := s.Video(ctx, "vid_a"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("video: %v", err)
 	}
-	if err := s.DeleteVideo(ctx, "vid_a"); !errors.Is(err, ErrNotFound) {
+	if err := s.DeleteVideo(ctx, "vid_a", start); !errors.Is(err, ErrNotFound) {
 		t.Errorf("second delete: %v", err)
 	}
 }
@@ -164,8 +167,9 @@ func TestRetryAndRequeue(t *testing.T) {
 	if video, _ := s.Video(ctx, "vid_a"); video.Status != VideoQueued {
 		t.Errorf("status %q", video.Status)
 	}
+	// The stop does not count as an attempt.
 	again, _ := s.ClaimJob(ctx, []string{JobTranscode}, start)
-	if again == nil || again.ID != job.ID || again.Attempts != 2 {
+	if again == nil || again.ID != job.ID || again.Attempts != 1 {
 		t.Fatalf("job %+v", again)
 	}
 

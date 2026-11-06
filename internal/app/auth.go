@@ -33,6 +33,55 @@ const (
 // ErrInvalidLogin is returned for a wrong email or password, without telling which.
 var ErrInvalidLogin = errors.New("the email or the password is wrong")
 
+// ErrSetupDone is returned by Setup once deneb has an administrator.
+var ErrSetupDone = errors.New("deneb has an administrator already")
+
+// ErrInvalidSetupCode is returned by Setup for a wrong setup code.
+var ErrInvalidSetupCode = errors.New("the setup code is wrong; deneb writes it to its log when it starts")
+
+// setupAlphabet has the letters and digits that do not look alike, 32 of them, so
+// that each random byte picks one evenly.
+const setupAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+// newSetupCode returns a code such as "K7QM-2XPA", 40 random bits.
+func newSetupCode() string {
+	raw := make([]byte, 8)
+	rand.Read(raw)
+	code := make([]byte, 0, 9)
+	for i, b := range raw {
+		if i == 4 {
+			code = append(code, '-')
+		}
+		code = append(code, setupAlphabet[int(b)%len(setupAlphabet)])
+	}
+	return string(code)
+}
+
+// SetupCode returns the code that creating the first administrator asks for, or ""
+// once there is one. deneb writes it to its log, so that only who runs deneb can
+// claim it, and not the first visitor of a server that just started.
+func (a *App) SetupCode() string {
+	a.setupMu.Lock()
+	defer a.setupMu.Unlock()
+	return a.setupCode
+}
+
+// normalizeCode lets a setup code be typed in lower case, and with or without its dash.
+func normalizeCode(code string) string {
+	return strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(code))
+}
+
+// hashTurn waits until few enough passwords are being hashed, and returns the
+// function that ends the turn.
+func (a *App) hashTurn(ctx context.Context) (func(), error) {
+	select {
+	case a.hashing <- struct{}{}:
+		return func() { <-a.hashing }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 // HashPassword hashes a password with Argon2id, in the PHC string format.
 func HashPassword(password string) string {
 	salt := make([]byte, 16)
@@ -75,8 +124,16 @@ func (a *App) SetupRequired(ctx context.Context) (bool, error) {
 	return count == 0, err
 }
 
-// Setup creates the first administrator and signs them in. It fails once one exists.
-func (a *App) Setup(ctx context.Context, email, password string) (store.User, string, error) {
+// Setup creates the first administrator, with the setup code from the log, and signs
+// them in. It fails with ErrSetupDone once one exists.
+func (a *App) Setup(ctx context.Context, email, password, code string) (store.User, string, error) {
+	want := a.SetupCode()
+	if want == "" {
+		return store.User{}, "", ErrSetupDone
+	}
+	if subtle.ConstantTimeCompare([]byte(normalizeCode(code)), []byte(normalizeCode(want))) != 1 {
+		return store.User{}, "", ErrInvalidSetupCode
+	}
 	email = strings.ToLower(strings.TrimSpace(email))
 	if _, err := mail.ParseAddress(email); err != nil || !strings.Contains(email, "@") {
 		return store.User{}, "", errors.New("enter a valid email")
@@ -84,16 +141,33 @@ func (a *App) Setup(ctx context.Context, email, password string) (store.User, st
 	if utf8.RuneCountInString(password) < MinPasswordLength {
 		return store.User{}, "", fmt.Errorf("the password needs at least %d characters", MinPasswordLength)
 	}
-	user, err := a.store.CreateFirstUser(ctx, NewID("usr"), email, HashPassword(password), a.now())
+	done, err := a.hashTurn(ctx)
 	if err != nil {
 		return store.User{}, "", err
 	}
+	hash := HashPassword(password)
+	done()
+	user, err := a.store.CreateFirstUser(ctx, NewID("usr"), email, hash, a.now())
+	if errors.Is(err, store.ErrExists) {
+		return store.User{}, "", ErrSetupDone
+	}
+	if err != nil {
+		return store.User{}, "", err
+	}
+	a.setupMu.Lock()
+	a.setupCode = ""
+	a.setupMu.Unlock()
 	token, err := a.startSession(ctx, user.ID)
 	return user, token, err
 }
 
 // Login checks an email and a password, and returns the token of a new session.
 func (a *App) Login(ctx context.Context, email, password string) (store.User, string, error) {
+	done, err := a.hashTurn(ctx)
+	if err != nil {
+		return store.User{}, "", err
+	}
+	defer done()
 	user, err := a.store.UserByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
 	if errors.Is(err, store.ErrNotFound) {
 		CheckPassword(password, dummyHash)

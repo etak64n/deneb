@@ -33,6 +33,9 @@ type probeOutput struct {
 		Height    int               `json:"height"`
 		Duration  string            `json:"duration"`
 		Tags      map[string]string `json:"tags"`
+		// SampleAspectRatio is the shape of a pixel, such as "4:3" for HDV, whose
+		// 1440 stored columns show 1920 wide.
+		SampleAspectRatio string `json:"sample_aspect_ratio"`
 		// AttachedPic marks the cover art of an audio file, which is a picture, not a video.
 		Disposition struct {
 			AttachedPic int `json:"attached_pic"`
@@ -69,6 +72,9 @@ func ProbeFile(ctx context.Context, ffprobe, path string) (Probe, error) {
 			}
 			found = true
 			probe.Width, probe.Height = stream.Width, stream.Height
+			if num, den, ok := ratio(stream.SampleAspectRatio); ok && num != den {
+				probe.Width = even(int(math.Round(float64(stream.Width) * float64(num) / float64(den))))
+			}
 			if quarterTurn(stream.Tags["rotate"], stream.SideData) {
 				probe.Width, probe.Height = probe.Height, probe.Width
 			}
@@ -105,6 +111,17 @@ func quarterTurn(rotateTag string, sideData []struct {
 	}
 	turns := math.Mod(math.Abs(rotation), 180)
 	return turns > 45 && turns < 135
+}
+
+// ratio reads a ratio such as "4:3". ffprobe writes "0:1" or "N/A" when it does not know.
+func ratio(value string) (int, int, bool) {
+	numText, denText, found := strings.Cut(value, ":")
+	num, numErr := strconv.Atoi(numText)
+	den, denErr := strconv.Atoi(denText)
+	if !found || numErr != nil || denErr != nil || num <= 0 || den <= 0 {
+		return 0, 0, false
+	}
+	return num, den, true
 }
 
 func parseSeconds(value string) float64 {

@@ -13,6 +13,8 @@ const (
 	JobTranscode = "transcode"
 	JobCaptions  = "captions"
 	JobWebhook   = "webhook"
+	// JobPurge removes the files of a deleted video.
+	JobPurge = "purge"
 )
 
 // The states of a job.
@@ -88,14 +90,15 @@ func (s *Store) RetryJob(ctx context.Context, id int64, reason string, runAfter,
 }
 
 // RequeueRunningJobs queues again the jobs that were running when deneb stopped,
-// and puts their videos back in the queue.
+// and puts their videos back in the queue. A stop does not count as an attempt.
 func (s *Store) RequeueRunningJobs(ctx context.Context, now time.Time) (int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE jobs SET status = ?, updated_at = ? WHERE status = ?`, JobQueued, millis(now), JobRunning)
+	result, err := tx.ExecContext(ctx, `UPDATE jobs SET status = ?, attempts = max(attempts - 1, 0), updated_at = ? WHERE status = ?`,
+		JobQueued, millis(now), JobRunning)
 	if err != nil {
 		return 0, err
 	}

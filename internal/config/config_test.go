@@ -28,7 +28,7 @@ func TestDefaults(t *testing.T) {
 	if cfg.TrustProxy || cfg.Captions.Enabled || cfg.Captions.Model != "base" || cfg.Captions.Language != "auto" {
 		t.Errorf("trust proxy %v, captions %+v", cfg.TrustProxy, cfg.Captions)
 	}
-	if !cfg.S3.PathStyle || cfg.S3.Region != "auto" {
+	if !cfg.S3.PathStyle || cfg.S3.Redirects || cfg.S3.Region != "auto" {
 		t.Errorf("S3 %+v", cfg.S3)
 	}
 }
@@ -49,6 +49,8 @@ func TestValues(t *testing.T) {
 		"DENEB_S3_ACCESS_KEY_ID":     "id",
 		"DENEB_S3_SECRET_ACCESS_KEY": "secret",
 		"DENEB_S3_PATH_STYLE":        "false",
+		"DENEB_S3_REDIRECTS":         "true",
+		"DENEB_SECRET":               "0123456789abcdef0123456789abcdef",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -62,8 +64,14 @@ func TestValues(t *testing.T) {
 	if !cfg.Captions.Enabled || cfg.Captions.Model != "large-v3-turbo" {
 		t.Errorf("captions %+v", cfg.Captions)
 	}
-	if cfg.Storage != StorageS3 || cfg.S3.PathStyle || cfg.S3.Bucket != "videos" {
+	if cfg.Storage != StorageS3 || cfg.S3.PathStyle || !cfg.S3.Redirects || cfg.S3.Bucket != "videos" {
 		t.Errorf("storage %q, S3 %+v", cfg.Storage, cfg.S3)
+	}
+}
+
+func TestShortSecret(t *testing.T) {
+	if _, err := loadFrom(map[string]string{"DENEB_SECRET": "password"}); err == nil || !strings.Contains(err.Error(), "DENEB_SECRET") {
+		t.Errorf("error %v", err)
 	}
 }
 

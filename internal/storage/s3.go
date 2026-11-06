@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -28,6 +29,7 @@ const redirectTTL = 10 * time.Minute
 // S3 keeps the files in a bucket of an S3-compatible service.
 type S3 struct {
 	bucket     string
+	redirects  bool
 	client     *s3.Client
 	uploader   *manager.Uploader
 	downloader *manager.Downloader
@@ -53,9 +55,14 @@ func NewS3(ctx context.Context, cfg config.S3Config) (*S3, error) {
 		o.UsePathStyle = cfg.PathStyle
 	})
 	return &S3{
-		bucket:     cfg.Bucket,
-		client:     client,
-		uploader:   manager.NewUploader(client, func(u *manager.Uploader) { u.PartSize = 16 << 20 }),
+		bucket:    cfg.Bucket,
+		redirects: cfg.Redirects,
+		client:    client,
+		uploader: manager.NewUploader(client, func(u *manager.Uploader) {
+			u.PartSize = 16 << 20
+			// The uploader has a setting of its own, which the client's does not change.
+			u.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+		}),
 		downloader: manager.NewDownloader(client, func(d *manager.Downloader) { d.PartSize = 16 << 20 }),
 		presigner:  s3.NewPresignClient(client),
 	}, nil
@@ -116,8 +123,11 @@ func (s *S3) LocalFile(ctx context.Context, key, dir string) (string, func(), er
 	return target, func() { os.Remove(target) }, nil
 }
 
+// Serve sends a file of the bucket through deneb, with ranges. With Redirects, it
+// sends players to signed URLs of the bucket for the files other than playlists and
+// subtitles, which deneb sends itself because their URLs point back to deneb.
 func (s *S3) Serve(w http.ResponseWriter, r *http.Request, key string) {
-	if !isText(key) {
+	if s.redirects && !isText(key) {
 		signed, err := s.presigner.PresignGetObject(r.Context(), &s3.GetObjectInput{
 			Bucket: aws.String(s.bucket),
 			Key:    aws.String(key),
@@ -130,11 +140,20 @@ func (s *S3) Serve(w http.ResponseWriter, r *http.Request, key string) {
 		http.Redirect(w, r, signed.URL, http.StatusFound)
 		return
 	}
-	object, err := s.client.GetObject(r.Context(), &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)})
+	input := &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)}
+	if ranges := r.Header.Get("Range"); ranges != "" {
+		input.Range = aws.String(ranges)
+	}
+	object, err := s.client.GetObject(r.Context(), input)
 	if err != nil {
 		var missing *types.NoSuchKey
 		if errors.As(err, &missing) {
 			http.NotFound(w, r)
+			return
+		}
+		var apiErr interface{ ErrorCode() string }
+		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "InvalidRange" {
+			http.Error(w, "the range is outside the file", http.StatusRequestedRangeNotSatisfiable)
 			return
 		}
 		slog.Error("read from the bucket", "key", key, "error", err)
@@ -143,9 +162,16 @@ func (s *S3) Serve(w http.ResponseWriter, r *http.Request, key string) {
 	}
 	defer object.Body.Close()
 	w.Header().Set("Content-Type", ContentType(key))
+	w.Header().Set("Accept-Ranges", "bytes")
 	if object.ContentLength != nil {
 		w.Header().Set("Content-Length", fmt.Sprint(*object.ContentLength))
 	}
+	status := http.StatusOK
+	if object.ContentRange != nil {
+		w.Header().Set("Content-Range", *object.ContentRange)
+		status = http.StatusPartialContent
+	}
+	w.WriteHeader(status)
 	if r.Method == http.MethodHead {
 		return
 	}
@@ -171,11 +197,51 @@ func (s *S3) DeletePrefix(ctx context.Context, prefix string) error {
 			Delete: &types.Delete{Objects: objects, Quiet: aws.Bool(true)},
 		})
 		if err != nil {
-			return err
+			// Some services refuse the checksum that the SDK sends with DeleteObjects,
+			// or do not have it. Removing the files one by one works everywhere.
+			if ctx.Err() != nil {
+				return err
+			}
+			if err := s.deleteEach(ctx, objects); err != nil {
+				return err
+			}
+			continue
 		}
 		if len(result.Errors) > 0 {
 			return fmt.Errorf("delete %s: %s", aws.ToString(result.Errors[0].Key), aws.ToString(result.Errors[0].Message))
 		}
 	}
 	return nil
+}
+
+// deleteEach removes files one request at a time, a few at once.
+func (s *S3) deleteEach(ctx context.Context, objects []types.ObjectIdentifier) error {
+	keys := make(chan *string)
+	errs := make(chan error, 1)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for key := range keys {
+				if _, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: aws.String(s.bucket), Key: key}); err != nil {
+					select {
+					case errs <- fmt.Errorf("delete %s: %w", aws.ToString(key), err):
+					default:
+					}
+				}
+			}
+		}()
+	}
+	for _, object := range objects {
+		keys <- object.Key
+	}
+	close(keys)
+	wg.Wait()
+	select {
+	case err := <-errs:
+		return err
+	default:
+		return nil
+	}
 }

@@ -232,6 +232,15 @@ func (s *Server) deleteWebhook(w http.ResponseWriter, r *http.Request, _ caller)
 }
 
 func (s *Server) listDeliveries(w http.ResponseWriter, r *http.Request, _ caller) {
+	found, err := s.app.Store().WebhookExists(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "the webhook does not exist")
+		return
+	}
 	deliveries, err := s.app.Store().ListDeliveries(r.Context(), r.PathValue("id"), 50)
 	if err != nil {
 		s.fail(w, err)

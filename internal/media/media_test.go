@@ -49,6 +49,23 @@ func TestProbeFile(t *testing.T) {
 	}
 }
 
+// HDV stores 1440 columns of pixels that are a third wider than tall, shown 1920 wide.
+func TestProbeReadsThePixelShape(t *testing.T) {
+	requireFFmpeg(t)
+	path := filepath.Join(t.TempDir(), "hdv.mp4")
+	if output, err := exec.Command("ffmpeg", "-hide_banner", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc2=size=1440x1080:rate=25:duration=1",
+		"-vf", "setsar=4/3", "-c:v", "libx264", "-pix_fmt", "yuv420p", path).CombinedOutput(); err != nil {
+		t.Fatalf("make a test clip: %v\n%s", err, output)
+	}
+	probe, err := ProbeFile(context.Background(), "ffprobe", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probe.Width != 1920 || probe.Height != 1080 {
+		t.Errorf("probe %+v, want 1920x1080", probe)
+	}
+}
+
 func TestProbeRefusesFilesWithoutVideo(t *testing.T) {
 	requireFFmpeg(t)
 	// Uploads are stored as "source", without the extension that ffprobe would also go by.
@@ -101,8 +118,13 @@ func TestEncodePipeline(t *testing.T) {
 				}
 			}
 
-			if err := Poster(ctx, "ffmpeg", source, probe.Duration, filepath.Join(dir, "poster.jpg")); err != nil {
+			if err := Poster(ctx, "ffmpeg", source, probe, filepath.Join(dir, "poster.jpg")); err != nil {
 				t.Fatal(err)
+			}
+			size, err := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+				"-of", "csv=p=0", filepath.Join(dir, "poster.jpg")).Output()
+			if err != nil || strings.TrimSpace(string(size)) != "1280,720" {
+				t.Errorf("poster %q, %v", size, err)
 			}
 			smallest := filepath.Join(hls, VariantPlaylist(rungs[len(rungs)-1].Name))
 			if err := Storyboard(ctx, "ffmpeg", smallest, probe.Duration, dir); err != nil {

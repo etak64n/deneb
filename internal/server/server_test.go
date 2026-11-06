@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -67,7 +68,6 @@ func newHarness(t *testing.T, change func(*config.Config)) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go srv.RunUploads(ctx)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(func() {
 		ts.Close()
@@ -129,7 +129,8 @@ func (h *harness) dashboard(method, path string, body any) response {
 
 func (h *harness) signIn() {
 	h.t.Helper()
-	if r := h.dashboard("POST", "/auth/setup", map[string]string{"email": "admin@example.com", "password": "correct horse battery"}); r.status != http.StatusCreated {
+	body := map[string]string{"email": "admin@example.com", "password": "correct horse battery", "setup_code": h.app.SetupCode()}
+	if r := h.dashboard("POST", "/auth/setup", body); r.status != http.StatusCreated {
 		h.t.Fatalf("setup: %d %s", r.status, r.body)
 	}
 }
@@ -194,11 +195,16 @@ func TestSetupAndSession(t *testing.T) {
 		t.Fatalf("state %+v", state)
 	}
 	credentials := map[string]string{"email": "admin@example.com", "password": "correct horse battery"}
+	setup := map[string]string{"email": "admin@example.com", "password": "correct horse battery", "setup_code": h.app.SetupCode()}
 	// A page on another site cannot send the header of the dashboard.
-	if r := h.do("POST", "/auth/setup", credentials); r.status != http.StatusForbidden {
+	if r := h.do("POST", "/auth/setup", setup); r.status != http.StatusForbidden {
 		t.Errorf("setup without the header: %d", r.status)
 	}
-	r := h.dashboard("POST", "/auth/setup", credentials)
+	// Only who reads the log of deneb knows the setup code.
+	if r := h.dashboard("POST", "/auth/setup", credentials); r.status != http.StatusForbidden || !strings.Contains(string(r.body), "setup code") {
+		t.Errorf("setup without the code: %d %s", r.status, r.body)
+	}
+	r := h.dashboard("POST", "/auth/setup", setup)
 	if r.status != http.StatusCreated {
 		t.Fatalf("setup: %d %s", r.status, r.body)
 	}
@@ -210,8 +216,8 @@ func TestSetupAndSession(t *testing.T) {
 	if state.SetupRequired || state.User == nil || state.User.Email != "admin@example.com" {
 		t.Errorf("state after setup %+v", state)
 	}
-	if r := h.dashboard("POST", "/auth/setup", credentials); r.status != http.StatusBadRequest {
-		t.Errorf("second setup: %d", r.status)
+	if r := h.dashboard("POST", "/auth/setup", setup); r.status != http.StatusConflict {
+		t.Errorf("second setup: %d %s", r.status, r.body)
 	}
 	if r := h.dashboard("POST", "/auth/logout", nil); r.status != http.StatusNoContent {
 		t.Errorf("logout: %d", r.status)
@@ -299,6 +305,40 @@ func TestLoginLimit(t *testing.T) {
 	}
 }
 
+func TestLimitKey(t *testing.T) {
+	for _, same := range [][2]string{{"2001:db8::1", "2001:db8::ffff:1"}, {"203.0.113.5", "203.0.113.5"}} {
+		if limitKey(same[0]) != limitKey(same[1]) {
+			t.Errorf("%s and %s count apart", same[0], same[1])
+		}
+	}
+	for _, apart := range [][2]string{{"2001:db8::1", "2001:db8:0:1::1"}, {"203.0.113.5", "203.0.113.6"}} {
+		if limitKey(apart[0]) == limitKey(apart[1]) {
+			t.Errorf("%s and %s count together", apart[0], apart[1])
+		}
+	}
+}
+
+// Behind a proxy, the address that counts is the one the proxy added last, whatever
+// the client wrote before it, in the same line or in a line of its own.
+func TestLoginLimitBehindAProxy(t *testing.T) {
+	h := newHarness(t, func(cfg *config.Config) { cfg.TrustProxy = true })
+	wrong, _ := json.Marshal(map[string]string{"email": "admin@example.com", "password": "wrong password!"})
+	for i := range 11 {
+		request, _ := http.NewRequest("POST", h.url+"/auth/login", bytes.NewReader(wrong))
+		request.Header.Set(dashboardHeader, "test")
+		request.Header.Add("X-Forwarded-For", "198.51.100."+strconv.Itoa(i))
+		request.Header.Add("X-Forwarded-For", "203.0.113.7")
+		response, err := h.client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if i == 10 && response.StatusCode != http.StatusTooManyRequests {
+			t.Errorf("attempt 11 from one client: %d", response.StatusCode)
+		}
+	}
+}
+
 func TestLoginLimitIgnoresForgedAddresses(t *testing.T) {
 	h := newHarness(t, nil)
 	wrong := map[string]string{"email": "admin@example.com", "password": "wrong password!"}
@@ -330,6 +370,9 @@ func TestVideos(t *testing.T) {
 	}
 	if r := h.dashboard("POST", "/v1/videos", map[string]string{"name": "x"}); r.status != http.StatusBadRequest {
 		t.Errorf("an unknown field: %d", r.status)
+	}
+	if r := h.dashboard("POST", "/v1/videos", map[string]string{"title": strings.Repeat("a", 2<<20)}); r.status != http.StatusRequestEntityTooLarge {
+		t.Errorf("a body of 2 MB: %d", r.status)
 	}
 	// The list orders videos by the millisecond of their creation.
 	time.Sleep(5 * time.Millisecond)
@@ -415,29 +458,38 @@ func TestUpload(t *testing.T) {
 		t.Fatalf("send the file: %d %s", patch.status, patch.body)
 	}
 
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		video, err := h.app.Store().Video(context.Background(), id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if video.Status == store.VideoQueued {
-			if video.SourceSize != int64(len(data)) {
-				t.Errorf("source size %d", video.SourceSize)
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the video stayed %s", video.Status)
-		}
-		time.Sleep(20 * time.Millisecond)
+	// The video is queued by the time the last part is answered, and its file waits
+	// for the encoder where it arrived, under the ID of the video.
+	if !strings.HasSuffix(location, "/v1/uploads/"+id) {
+		t.Errorf("location %q does not end with the ID of the video", location)
 	}
-	stored, err := os.ReadFile(filepath.Join(h.dir, "media", "videos", id, "source"))
+	video, err := h.app.Store().Video(context.Background(), id)
+	if err != nil || video.Status != store.VideoQueued || video.SourceSize != int64(len(data)) {
+		t.Errorf("video %+v, %v", video, err)
+	}
+	stored, err := os.ReadFile(h.app.UploadPath(id))
 	if err != nil || !bytes.Equal(stored, data) {
-		t.Errorf("stored source: %d bytes, %v", len(stored), err)
+		t.Errorf("the upload: %d bytes, %v", len(stored), err)
 	}
 	if r := h.tusCreate(len(data), map[string]string{"video_id": id, "token": token}); r.status != http.StatusConflict {
 		t.Errorf("a second upload of the video: %d", r.status)
+	}
+
+	// The file of a video deleted during its upload is refused, and removed.
+	_, gone, _ := h.app.CreateVideo(context.Background(), "", "")
+	r = h.tusCreate(len(data), gone.Metadata)
+	if r.status != http.StatusCreated {
+		t.Fatalf("create the upload: %d %s", r.status, r.body)
+	}
+	goneID := gone.Metadata["video_id"]
+	h.dashboard("DELETE", "/v1/videos/"+goneID, nil)
+	patch = h.do("PATCH", strings.TrimPrefix(r.header.Get("Location"), h.url), data,
+		"Tus-Resumable", "1.0.0", "Upload-Offset", "0", "Content-Type", "application/offset+octet-stream")
+	if patch.status != http.StatusNotFound {
+		t.Errorf("the upload of a deleted video: %d %s", patch.status, patch.body)
+	}
+	if _, err := os.Stat(h.app.UploadPath(goneID)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the upload of a deleted video stays: %v", err)
 	}
 }
 
@@ -579,5 +631,8 @@ func TestWebhooks(t *testing.T) {
 	}
 	if r := h.dashboard("DELETE", "/v1/webhooks/"+created.Webhook.ID, nil); r.status != http.StatusNotFound {
 		t.Errorf("delete again: %d", r.status)
+	}
+	if r := h.do("GET", "/v1/webhooks/"+created.Webhook.ID+"/deliveries", nil); r.status != http.StatusNotFound {
+		t.Errorf("deliveries of a deleted webhook: %d %s", r.status, r.body)
 	}
 }

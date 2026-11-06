@@ -19,8 +19,15 @@ const (
 	EventVideoCaptionsReady = "video.captions_ready"
 )
 
+// permanentError is a failure that another attempt cannot fix, such as a file that
+// is not a video.
+type permanentError struct{ err error }
+
+func (e permanentError) Error() string { return e.err.Error() }
+func (e permanentError) Unwrap() error { return e.err }
+
 // transcode turns the source of a video into its HLS stream, poster, and storyboard.
-// A failure marks the video as failed; only a stop of deneb leaves it to run again.
+// runJob decides what a failure means for the video.
 func (a *App) transcode(ctx context.Context, id string) error {
 	if _, err := a.store.Video(ctx, id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -31,16 +38,7 @@ func (a *App) transcode(ctx context.Context, id string) error {
 	if err := a.store.StartVideo(ctx, id, a.now()); err != nil {
 		return err
 	}
-	err := a.encode(ctx, id)
-	if err == nil || ctx.Err() != nil {
-		return err
-	}
-	a.log.Error("encode a video", "video", id, "error", err)
-	if failErr := a.store.FailVideo(context.WithoutCancel(ctx), id, err.Error(), a.now()); failErr != nil && !errors.Is(failErr, store.ErrNotFound) {
-		return failErr
-	}
-	a.emit(ctx, EventVideoFailed, id)
-	return err
+	return a.encode(ctx, id)
 }
 
 func (a *App) encode(ctx context.Context, id string) error {
@@ -48,14 +46,21 @@ func (a *App) encode(ctx context.Context, id string) error {
 	os.RemoveAll(work)
 	defer os.RemoveAll(work)
 
-	source, cleanup, err := a.storage.LocalFile(ctx, sourceKey(id), filepath.Join(work, "source"))
-	if err != nil {
-		return fmt.Errorf("read the source: %w", err)
+	// A new upload is encoded where it arrived and stored as the source after, which
+	// spares a round trip to a bucket. A video encoded again reads its stored source.
+	upload := a.UploadPath(id)
+	source := upload
+	if _, err := os.Stat(upload); err != nil {
+		stored, cleanup, err := a.storage.LocalFile(ctx, sourceKey(id), filepath.Join(work, "source"))
+		if err != nil {
+			return fmt.Errorf("read the source: %w", err)
+		}
+		defer cleanup()
+		source = stored
 	}
-	defer cleanup()
 	probe, err := media.ProbeFile(ctx, a.cfg.FFprobePath, source)
 	if err != nil {
-		return err
+		return permanentError{err}
 	}
 	rungs := media.Ladder(probe.Width, probe.Height)
 
@@ -76,7 +81,7 @@ func (a *App) encode(ctx context.Context, id string) error {
 	}); err != nil {
 		return err
 	}
-	if err := media.Poster(ctx, a.cfg.FFmpegPath, source, probe.Duration, filepath.Join(work, "poster.jpg")); err != nil {
+	if err := media.Poster(ctx, a.cfg.FFmpegPath, source, probe, filepath.Join(work, "poster.jpg")); err != nil {
 		return fmt.Errorf("make the poster: %w", err)
 	}
 	smallest := filepath.Join(hlsDir, media.VariantPlaylist(rungs[len(rungs)-1].Name))
@@ -101,6 +106,12 @@ func (a *App) encode(ctx context.Context, id string) error {
 		if err := a.storage.PutFile(ctx, videoPrefix(id)+name, filepath.Join(work, name)); err != nil {
 			return err
 		}
+	}
+	if source == upload {
+		if err := a.storage.MoveFile(ctx, sourceKey(id), upload); err != nil {
+			return fmt.Errorf("store the source: %w", err)
+		}
+		a.RemoveUpload(id)
 	}
 
 	renditions := make([]store.Rendition, 0, len(rungs))
@@ -138,15 +149,7 @@ func (a *App) captions(ctx context.Context, id string) error {
 	if err := a.store.SetCaptions(ctx, id, store.CaptionsProcessing, "", a.now()); err != nil {
 		return err
 	}
-	err = a.transcribe(ctx, id)
-	if err == nil || ctx.Err() != nil {
-		return err
-	}
-	a.log.Error("write the captions of a video", "video", id, "error", err)
-	if setErr := a.store.SetCaptions(context.WithoutCancel(ctx), id, store.CaptionsFailed, "", a.now()); setErr != nil && !errors.Is(setErr, store.ErrNotFound) {
-		return setErr
-	}
-	return err
+	return a.transcribe(ctx, id)
 }
 
 func (a *App) transcribe(ctx context.Context, id string) error {

@@ -19,9 +19,10 @@ type Storage interface {
 	// LocalFile gives a local path of the object for the encoders: the file itself on
 	// the volume, or a copy in dir that cleanup removes.
 	LocalFile(ctx context.Context, key, dir string) (localPath string, cleanup func(), err error)
-	// Serve answers a request for an object. Large objects of a bucket may answer with
-	// a redirect to a signed URL; text objects are always served by deneb itself, so
-	// that the relative URLs inside playlists keep pointing at deneb.
+	// Serve answers a request for an object, with ranges. A bucket with redirects on
+	// answers for segments and images with a redirect to a signed URL; playlists and
+	// subtitles always come from deneb itself, so that the relative URLs inside them
+	// keep pointing at deneb.
 	Serve(w http.ResponseWriter, r *http.Request, key string)
 	// DeletePrefix removes every object whose key starts with the prefix.
 	DeletePrefix(ctx context.Context, prefix string) error

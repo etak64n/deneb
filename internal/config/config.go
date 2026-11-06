@@ -67,6 +67,11 @@ type S3Config struct {
 	// PathStyle puts the bucket in the path rather than in the host name, as most
 	// services other than Amazon S3 need.
 	PathStyle bool
+	// Redirects sends players to signed URLs of the bucket for segments and images,
+	// rather than through deneb, which spares the bandwidth of deneb. Browsers then
+	// fetch from the endpoint itself, which must be reachable from them and allow
+	// any origin in the CORS of the bucket.
+	Redirects bool
 }
 
 // CaptionsConfig turns on subtitles that whisper.cpp writes on this machine.
@@ -137,6 +142,7 @@ func load(getenv func(string) string) (Config, error) {
 			AccessKeyID:     env("DENEB_S3_ACCESS_KEY_ID", ""),
 			SecretAccessKey: env("DENEB_S3_SECRET_ACCESS_KEY", ""),
 			PathStyle:       flag("DENEB_S3_PATH_STYLE", true),
+			Redirects:       flag("DENEB_S3_REDIRECTS", false),
 		},
 		Captions: CaptionsConfig{
 			Enabled:     flag("DENEB_CAPTIONS", false),
@@ -148,6 +154,10 @@ func load(getenv func(string) string) (Config, error) {
 		FFprobePath: env("DENEB_FFPROBE_PATH", "ffprobe"),
 	}
 
+	// A short secret could be found by trying every value against one playback URL.
+	if cfg.Secret != "" && len(cfg.Secret) < minSecretLength {
+		problems = append(problems, fmt.Sprintf("DENEB_SECRET must be at least %d characters, such as the output of openssl rand -hex 32", minSecretLength))
+	}
 	if cfg.PublicURL != "" {
 		parsed, err := url.Parse(cfg.PublicURL)
 		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
@@ -185,6 +195,9 @@ func load(getenv func(string) string) (Config, error) {
 	}
 	return cfg, nil
 }
+
+// minSecretLength is the shortest DENEB_SECRET.
+const minSecretLength = 32
 
 // The whisper.cpp models that deneb downloads, by the names of their files.
 var models = []string{"tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"}

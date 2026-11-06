@@ -15,7 +15,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -39,12 +42,28 @@ type App struct {
 	log     *slog.Logger
 	now     func() time.Time
 
+	// client sends the webhooks. It does not follow redirects, which would turn a POST
+	// into a GET without its body.
+	client *http.Client
+
 	wakeMu sync.Mutex
 	wakers []chan struct{}
 
-	// cancels stops the job that works on a video, by the ID of the video.
-	cancelsMu sync.Mutex
-	cancels   map[string]context.CancelFunc
+	// running holds the jobs at work on videos by their ID, so that deleting a video stops them.
+	runningMu sync.Mutex
+	running   map[int64]runningJob
+
+	// hashing lets few passwords be checked at once, since each check takes 19 MiB.
+	hashing chan struct{}
+
+	// setupCode is the code that creating the first administrator asks for, from the log.
+	setupMu   sync.Mutex
+	setupCode string
+}
+
+type runningJob struct {
+	video  string
+	cancel context.CancelFunc
 }
 
 // New returns the app. It takes the secret that signs tokens from the
@@ -64,11 +83,23 @@ func New(ctx context.Context, cfg config.Config, db *store.Store, files storage.
 		}
 		secret = stored
 	}
-	return &App{
+	a := &App{
 		cfg: cfg, store: db, storage: files, secret: []byte(secret), log: log,
-		now:     func() time.Time { return time.Now().UTC() },
-		cancels: map[string]context.CancelFunc{},
-	}, nil
+		now: func() time.Time { return time.Now().UTC() },
+		client: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}},
+		running: map[int64]runningJob{},
+		hashing: make(chan struct{}, 2),
+	}
+	required, err := a.SetupRequired(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if required {
+		a.setupCode = newSetupCode()
+	}
+	return a, nil
 }
 
 // Config returns the configuration of the app.
@@ -252,11 +283,26 @@ func (a *App) CreateVideo(ctx context.Context, title, base string) (store.Video,
 	}, nil
 }
 
-// CompleteUpload stores the uploaded file of a video and queues its encoding.
-func (a *App) CompleteUpload(ctx context.Context, videoID, localPath string, size int64) error {
-	if err := a.storage.MoveFile(ctx, sourceKey(videoID), localPath); err != nil {
-		return fmt.Errorf("store the source: %w", err)
+// UploadPath is where the file of a video arrives. tusd writes it there, under the ID
+// of the video, and keeps what it knows of the upload next to it, in UploadPath + ".info".
+func (a *App) UploadPath(videoID string) string {
+	return filepath.Join(a.cfg.DataDir, "uploads", videoID)
+}
+
+// RemoveUpload removes the file of a video as it arrived, and the record of tusd.
+func (a *App) RemoveUpload(videoID string) {
+	path := a.UploadPath(videoID)
+	for _, name := range []string{path, path + ".info"} {
+		if err := os.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			a.log.Warn("remove an upload", "path", name, "error", err)
+		}
 	}
+}
+
+// UploadFinished queues the encoding of a video whose file arrived. The file stays
+// where it arrived until the encoder has stored it, so that a stop loses nothing. It
+// returns store.ErrNotFound when the video is gone or no longer waits for its file.
+func (a *App) UploadFinished(ctx context.Context, videoID string, size int64) error {
 	if err := a.store.QueueVideo(ctx, videoID, size, a.now()); err != nil {
 		return err
 	}
@@ -264,20 +310,50 @@ func (a *App) CompleteUpload(ctx context.Context, videoID, localPath string, siz
 	return nil
 }
 
-// DeleteVideo removes a video and its files, and stops the job that works on it.
+// recoverUploads queues the videos whose file arrived but which deneb did not queue,
+// as when it stopped at that moment.
+func (a *App) recoverUploads(ctx context.Context) {
+	records, _ := filepath.Glob(filepath.Join(a.cfg.DataDir, "uploads", "*.info"))
+	for _, record := range records {
+		data, err := os.ReadFile(record)
+		if err != nil {
+			continue
+		}
+		// The fields of tusd's FileInfo that tell whether the whole file arrived.
+		var info struct {
+			ID             string
+			Size           int64
+			Offset         int64
+			SizeIsDeferred bool
+		}
+		if json.Unmarshal(data, &info) != nil || info.SizeIsDeferred || info.Offset != info.Size {
+			continue
+		}
+		video, err := a.store.Video(ctx, info.ID)
+		if err != nil || video.Status != store.VideoWaiting {
+			continue
+		}
+		if err := a.UploadFinished(ctx, info.ID, info.Size); err != nil {
+			a.log.Error("queue a video whose file arrived", "video", info.ID, "error", err)
+			continue
+		}
+		a.log.Info("queued a video whose file arrived before deneb stopped", "video", info.ID)
+	}
+}
+
+// DeleteVideo removes a video, stops the jobs that work on it, and queues the removal of its files.
 func (a *App) DeleteVideo(ctx context.Context, id string) error {
-	if err := a.store.DeleteVideo(ctx, id); err != nil {
+	if err := a.store.DeleteVideo(ctx, id, a.now()); err != nil {
 		return err
 	}
-	a.cancelsMu.Lock()
-	if cancel, found := a.cancels[id]; found {
-		cancel()
+	a.runningMu.Lock()
+	for _, job := range a.running {
+		if job.video == id {
+			job.cancel()
+		}
 	}
-	a.cancelsMu.Unlock()
-	if err := a.storage.DeletePrefix(ctx, videoPrefix(id)); err != nil {
-		// The video is gone from the database; files left behind only take space.
-		a.log.Error("delete the files of a video", "video", id, "error", err)
-	}
+	a.runningMu.Unlock()
+	a.Wake()
 	return nil
 }
 

@@ -117,8 +117,10 @@ func (s *Server) secure(r *http.Request) bool {
 // clientIP returns the address of the client. Behind a trusted proxy, it is the last
 // address in X-Forwarded-For, which the proxy added; the client may forge the others.
 func (s *Server) clientIP(r *http.Request) string {
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" && s.app.Config().TrustProxy {
-		addresses := strings.Split(forwarded, ",")
+	if lines := r.Header.Values("X-Forwarded-For"); len(lines) > 0 && s.app.Config().TrustProxy {
+		// The proxy adds the address it saw last, after whatever the client wrote,
+		// whether to the last line or as a line of its own.
+		addresses := strings.Split(lines[len(lines)-1], ",")
 		return strings.TrimSpace(addresses[len(addresses)-1])
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -126,6 +128,16 @@ func (s *Server) clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// limitKey is what the limit of sign-in attempts counts by: an IPv4 address, or the
+// /64 network of an IPv6 address, of which anyone has more addresses than they can use.
+func limitKey(address string) string {
+	ip := net.ParseIP(address)
+	if ip == nil || ip.To4() != nil {
+		return address
+	}
+	return ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
 }
 
 // uploadURLs makes tusd build the URLs of uploads from baseURL, as every other URL
@@ -166,6 +178,11 @@ func readJSON(w http.ResponseWriter, r *http.Request, value any) bool {
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(value); err != nil && !errors.Is(err, io.EOF) {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "the body is larger than 1 MB")
+			return false
+		}
 		writeError(w, http.StatusBadRequest, "the body is not valid JSON: "+err.Error())
 		return false
 	}

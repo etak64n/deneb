@@ -23,6 +23,9 @@ var migrations embed.FS
 // ErrNotFound is returned when a row does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrExists is returned when what a call would create exists already.
+var ErrExists = errors.New("exists already")
+
 // Store is the database of a deneb server.
 type Store struct {
 	db *sql.DB
