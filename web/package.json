@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@videojs/hlsjs-video": "^10.3.0",
     "@videojs/react": "^10.3.0",
     "lucide-react": "^1.69.0",
     "react": "^19.3.1",

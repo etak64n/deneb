@@ -1,8 +1,10 @@
 // The player of deneb: Video.js 10 with its neutral skin, playing the HLS stream,
 // with the storyboard for previews on the seek bar and the captions when they exist.
+// hls.js plays the stream: the lighter engine of Video.js cannot play MPEG-TS segments,
+// which deneb writes because every HLS player can play them.
 
 import "@videojs/react/video/neutral-skin.css";
-import { HlsVideo } from "@videojs/react/media/hls-video";
+import { HlsJsVideo } from "@videojs/react/media/hlsjs-video";
 import { NeutralVideoSkin, VideoPlayer } from "@videojs/react/video";
 
 export interface PlayerSources {
@@ -28,12 +30,12 @@ export function Player({ sources, autoPlay = false }: { sources: PlayerSources; 
   return (
     <VideoPlayer poster={sources.poster}>
       <NeutralVideoSkin className="deneb-player">
-        <HlsVideo src={sources.hls} playsInline crossOrigin="anonymous" autoPlay={autoPlay} preload="metadata">
+        <HlsJsVideo src={sources.hls} playsInline crossOrigin="anonymous" autoPlay={autoPlay} preload="metadata">
           <track kind="metadata" label="thumbnails" src={sources.storyboard} default />
           {sources.captions !== undefined && (
             <track kind="subtitles" src={sources.captions} srcLang={sources.captionsLanguage || undefined} label={languageName(sources.captionsLanguage)} />
           )}
-        </HlsVideo>
+        </HlsJsVideo>
       </NeutralVideoSkin>
     </VideoPlayer>
   );
