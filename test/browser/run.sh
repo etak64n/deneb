@@ -46,12 +46,13 @@ receiver_pid=$!
 
 echo "Make the clips"
 mkdir "$work/clips"
-espeak-ng -v en-us -s 145 -w "$work/speech.wav" \
+espeak-ng -v en-us -s 135 -w "$work/speech.wav" \
   "Welcome. Upload a video, and it is encoded, captioned, and ready to stream in minutes."
 ffmpeg() {
   docker run --rm --user "$(id -u):$(id -g)" -v "$work:/work" -w /work --entrypoint ffmpeg "$image" -hide_banner -loglevel error "$@"
 }
-ffmpeg -f lavfi -i "life=s=1280x720:r=30:mold=10:ratio=0.1:life_color=#9cc3ff:death_color=#1a2c44:mold_color=#2c4a70" \
+# Large cells that change six times a second, which a GIF of the demo stores cheaply.
+ffmpeg -f lavfi -i "life=s=160x90:r=6:mold=8:ratio=0.12:life_color=#9cc3ff:death_color=#1a2c44:mold_color=#2c4a70,scale=1280:720:flags=neighbor,fps=30" \
   -i speech.wav -filter_complex "[1:a]apad[a]" -map 0:v -map "[a]" -t 10 \
   -c:v libx264 -pix_fmt yuv420p -c:a aac "clips/Welcome to deneb.mp4"
 ffmpeg -f lavfi -i "testsrc2=s=1920x1080:r=30:d=12" -f lavfi -i "sine=f=330:d=12" \
@@ -62,8 +63,9 @@ ffmpeg -f lavfi -i "gradients=s=1280x720:r=30:d=8:speed=0.03:nb_colors=3:c0=0x1a
   -c:v libx264 -pix_fmt yuv420p "clips/Silent loop.mp4"
 
 echo "Start deneb"
+# CAPTIONS_MODEL picks another Whisper model than the small and fast tiny, such as base for the demo.
 docker run -d --name "$container" -p 8080:8080 --add-host=host.docker.internal:host-gateway \
-  -e DENEB_CAPTIONS=true -e DENEB_CAPTIONS_MODEL=tiny "$image" >/dev/null
+  -e DENEB_CAPTIONS=true -e DENEB_CAPTIONS_MODEL="${CAPTIONS_MODEL:-tiny}" "$image" >/dev/null
 for _ in $(seq 60); do
   curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break
   sleep 1

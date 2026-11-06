@@ -135,7 +135,10 @@ await pause(3500);
 
 console.log("Preview pictures on the seek bar");
 await maybe("the seek bar", async () => {
-  const seek = page.getByRole("slider", { name: /seek/i }).first();
+  // The controls show while the mouse moves over the player.
+  await point(page.locator("video"));
+  const seek = page.locator(".media-time-slider").first();
+  await seek.waitFor({ state: "visible", timeout: 3000 });
   const box = await seek.boundingBox();
   if (box === null) throw new Error("no seek bar");
   const y = box.y + box.height / 2;

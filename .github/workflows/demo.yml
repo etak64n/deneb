@@ -42,7 +42,10 @@ jobs:
       # Playwright records pages with an ffmpeg of its own, apart from the browser.
       - run: pnpm --dir test/browser exec playwright install ffmpeg
 
+      # base writes the spoken words more faithfully than tiny, which the tests use.
       - run: ./test/browser/run.sh deneb:demo demo.mjs
+        env:
+          CAPTIONS_MODEL: base
 
       - run: ./test/browser/gif.sh deneb:demo test/browser/out/demo
 
