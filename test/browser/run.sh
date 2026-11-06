@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Runs the dashboard of a deneb image in Google Chrome. It makes a few clips, one of
-# them spoken, starts a container and a receiver of webhooks, and lets dashboard.mjs
-# use the dashboard the way an administrator does. The screenshots of each step go to
-# test/browser/screenshots.
+# them spoken, starts a container and a receiver of webhooks, and runs a script of
+# this folder against it: dashboard.mjs, the default, uses the dashboard the way an
+# administrator does and keeps a screenshot of each step; demo.mjs records a short
+# demo. What the script writes goes to test/browser/out/<script>.
 #
-# Usage: test/browser/run.sh <image>
+# Usage: test/browser/run.sh <image> [dashboard.mjs|demo.mjs]
 # Needs docker, jq, python3, espeak-ng, Node.js, and Google Chrome, and
 # `pnpm --dir test/browser install` before.
 set -euo pipefail
 
-image=${1:?usage: test/browser/run.sh <image>}
+image=${1:?usage: test/browser/run.sh <image> [dashboard.mjs|demo.mjs]}
+script=${2:-dashboard.mjs}
 here=$(cd "$(dirname "$0")" && pwd)
+out=$here/out/${script%.mjs}
 work=$(mktemp -d)
 container=deneb-browser
 passed=false
@@ -72,6 +75,6 @@ for _ in $(seq 20); do
   sleep 0.5
 done
 
-rm -rf "$here/screenshots"
-DENEB_SETUP_CODE=$code node "$here/dashboard.mjs" http://127.0.0.1:8080 "$work/clips" "$here/screenshots"
+rm -rf "$out"
+DENEB_SETUP_CODE=$code node "$here/$script" http://127.0.0.1:8080 "$work/clips" "$out"
 passed=true

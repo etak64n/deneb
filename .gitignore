@@ -9,6 +9,6 @@
 /deneb
 /data/
 
-# The browser test and its screenshots.
+# The browser test, and its screenshots and recordings.
 /test/browser/node_modules/
-/test/browser/screenshots/
+/test/browser/out/

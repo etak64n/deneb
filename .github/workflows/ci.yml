@@ -129,6 +129,6 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: screenshots
-          path: test/browser/screenshots/
+          path: test/browser/out/dashboard/
           if-no-files-found: ignore
           retention-days: 14
