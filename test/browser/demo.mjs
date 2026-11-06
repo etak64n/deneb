@@ -131,7 +131,7 @@ await page.locator("video").evaluate((video) => {
   for (const track of video.textTracks) if (track.kind === "subtitles") track.mode = "showing";
   return video.play();
 });
-await pause(5500);
+await pause(3500);
 
 console.log("Preview pictures on the seek bar");
 await maybe("the seek bar", async () => {
@@ -142,7 +142,10 @@ await maybe("the seek bar", async () => {
   await page.mouse.move(box.x + box.width * 0.2, y, { steps: 25 });
   await pause(600);
   await page.mouse.move(box.x + box.width * 0.75, y, { steps: 60 });
-  await pause(1200);
+  await pause(400);
+  // A still of the preview, to check it without playing the recording.
+  await page.screenshot({ path: path.join(out, "seek-preview.png") });
+  await pause(800);
 });
 
 console.log("Copy the embed code");

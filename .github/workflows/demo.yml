@@ -53,4 +53,5 @@ jobs:
             test/browser/out/demo/demo.gif
             test/browser/out/demo/demo.mp4
             test/browser/out/demo/still_*.png
+            test/browser/out/demo/seek-preview.png
           retention-days: 30

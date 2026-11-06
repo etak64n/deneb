@@ -47,7 +47,7 @@ receiver_pid=$!
 echo "Make the clips"
 mkdir "$work/clips"
 espeak-ng -v en-us -s 145 -w "$work/speech.wav" \
-  "Welcome to deneb. Upload a video, and it is encoded, captioned, and ready to stream in minutes."
+  "Welcome. Upload a video, and it is encoded, captioned, and ready to stream in minutes."
 ffmpeg() {
   docker run --rm --user "$(id -u):$(id -g)" -v "$work:/work" -w /work --entrypoint ffmpeg "$image" -hide_banner -loglevel error "$@"
 }
