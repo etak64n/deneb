@@ -241,14 +241,15 @@ func (a *App) retryMedia(ctx context.Context, job *store.Job, cause error) {
 func (a *App) failMedia(ctx context.Context, job *store.Job, cause error) {
 	var err error
 	if job.Kind == store.JobTranscode {
-		if err = a.store.FailVideo(ctx, job.Ref, cause.Error(), a.now()); err == nil {
-			a.emit(ctx, EventVideoFailed, job.Ref)
-		}
-		// A file that is not a video is of no use. Any other stays where it arrived, so
-		// that POST /v1/videos/{id}/retry can encode it, until housekeep removes it a week
-		// after it last changed.
+		// A file that is not a video is of no use, and goes before the video shows that
+		// it failed. Any other stays where it arrived, so that POST
+		// /v1/videos/{id}/retry can encode it, until housekeep removes it a week after it
+		// last changed.
 		if errors.Is(cause, media.ErrNotAVideo) {
 			a.RemoveUpload(job.Ref)
+		}
+		if err = a.store.FailVideo(ctx, job.Ref, cause.Error(), a.now()); err == nil {
+			a.emit(ctx, EventVideoFailed, job.Ref)
 		}
 	} else {
 		err = a.store.SetCaptions(ctx, job.Ref, store.CaptionsFailed, "", a.now())
