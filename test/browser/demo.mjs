@@ -299,7 +299,7 @@ await pause(1200);
 
 console.log("Get the playback URLs");
 await call("caption", "4  Get the URLs that deneb signed");
-await call("type", `curl -s $DENEB/v1/videos/${id} -H "Authorization: Bearer $KEY" \\\n    | jq '.video | {status, captions, embed_url: .playback.embed_url}'`);
+await call("type", `curl -s $DENEB/v1/videos/$ID \\\n    -H "Authorization: Bearer $KEY" \\\n    | jq '.video | {status, captions, embed_url: .playback.embed_url}'`);
 const ready = (await api("GET", `/v1/videos/${id}`)).video;
 await pause(300);
 await call("print", highlight({ status: ready.status, captions: ready.captions, embed_url: ready.playback.embed_url }));
@@ -318,12 +318,14 @@ await frame.locator("video").evaluate((element) => {
   for (const track of element.textTracks) if (track.kind === "subtitles") track.mode = "showing";
   return element.play();
 });
-await pause(4200);
+// Out of the way of the captions.
+const player = await page.locator("#player").boundingBox();
+await glide(player.x + player.width * 0.8, player.y + player.height + 60, 25);
+await pause(3800);
 
 console.log("Preview pictures on the seek bar");
 await call("caption", "6  The seek bar previews every moment");
 try {
-  const player = await page.locator("#player").boundingBox();
   await glide(player.x + player.width / 2, player.y + player.height / 2, 20);
   const seek = frame.locator(".media-time-slider").first();
   await seek.waitFor({ state: "visible", timeout: 3000 });
@@ -343,6 +345,7 @@ try {
 console.log("The command to run deneb");
 await frame.locator("video").evaluate((element) => element.pause());
 await call("caption", null);
+await call("pointer", -40, -40);
 await call("card", title(`${tagline}<code>docker run -p 8080:8080 ghcr.io/etak64n/deneb</code><div style="font-size:17px;color:#5b6b80">github.com/etak64n/deneb</div>`));
 await pause(3200);
 
