@@ -4,6 +4,8 @@ deneb is a self-hosted video API that runs as one Docker image, as an alternativ
 You upload a video, and deneb encodes it to HLS in several qualities, writes captions with Whisper, and returns signed URLs to play or embed it.
 This README explains what deneb does, how it works, how to run it, and how to use its API.
 
+![Videos dropped on the dashboard upload and encode; one plays with the captions that deneb wrote, the seek bar previews its pictures, and its embed code is copied.](.github/demo.gif)
+
 ## Contents
 
 - [deneb](#deneb)
