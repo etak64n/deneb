@@ -9,6 +9,7 @@ A typical use is the videos of your own product, such as lessons, demos, or reco
 ## Contents
 
 - [How it works](#how-it-works)
+- [What deneb returns](#what-deneb-returns)
 - [Features](#features)
 - [Quick start](#quick-start)
 - [Documentation](#documentation)
@@ -24,6 +25,31 @@ A video goes through four steps.
 4. A webhook tells your app that the video is ready. Your app gets its signed playback URLs, and plays it in any HLS player or in the embed page.
 
 deneb is one Go program with SQLite, ffmpeg, and whisper.cpp in one image. It needs no database server, no queue, and no cloud service.
+
+## What deneb returns
+
+deneb takes one video file, and returns the URLs that play it.
+Your app gets them from the API, and a webhook tells it when they are ready.
+
+```text
+A video file, such as an MP4
+  |  your app creates a video, and sends the file in one PUT
+  v
+deneb encodes the video, and writes its captions
+  |
+  +-- hls_url         the stream, in up to four qualities from 1080p to 360p
+  +-- embed_url       a page with a player, for an iframe on any site
+  +-- captions_url    the captions as a WebVTT file, when captions are on
+  +-- poster_url      a still to show before the video plays
+  +-- storyboard_url  the pictures that the seek bar shows as previews
+```
+
+- `hls_url` plays in any HLS player, such as hls.js, Video.js, or the player of Safari, iOS, and Android. `embed_url` needs no player of your own.
+- The webhooks are `video.ready`, `video.failed`, and `video.captions_ready`. Your app can publish a video when its `video.ready` arrives.
+- The URLs are signed, and expire after 24 hours by default, so a URL that someone copies stops working a day later. The video itself stays, and each answer of the API carries fresh URLs.
+- Your app asks deneb for the video when it shows a page, so viewers always get URLs that work.
+- A page that pastes an embed code once and has no server, such as a blog post, needs URLs that last longer. `DENEB_PLAYBACK_TTL_HOURS` sets how many hours they last, such as 87600 for ten years.
+- The files stay on the volume of deneb, or in an S3-compatible bucket. deneb offers no MP4 downloads of its encodings.
 
 ## Features
 

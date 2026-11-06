@@ -39,7 +39,11 @@ curl -s https://video.example.com/v1/videos/vid_7wfd5nhpwadrdxgd7laif6x7ry \
 
 ## How long the URLs last
 
+The URLs expire, so a URL that someone copies stops working, while the video itself stays.
+Each answer of the API carries fresh URLs, so a page that your server builds always has URLs that work.
+
 - The URLs work until `expires_at`. They last at least `DENEB_PLAYBACK_TTL_HOURS`, 24 by default, rounded up to the hour.
+- A page that pastes an embed code once and has no server, such as a blog post, needs URLs that last longer. `DENEB_PLAYBACK_TTL_HOURS` has no upper limit, so 87600 makes the URLs last ten years. A URL that leaks then works as long, until you delete the video or set a new `DENEB_SECRET`, which ends every URL.
 - The playback URLs of a video stay the same for an hour, so players and CDNs can reuse what they fetched.
 - A playback URL carries its signed token in the path (internal/app/app.go). The relative URLs inside the playlists then carry the token too.
 
