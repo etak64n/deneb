@@ -272,10 +272,12 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, name string) 
 }
 
 // compressible tells whether gzip shrinks a file of the dashboard: scripts, styles,
-// pages, and SVG. Pictures in other formats and WOFF2 fonts are compressed already.
+// pages, SVG, JSON, and text, whose types Go knows without the files of the system,
+// which the compressed answer needs. Pictures in other formats and WOFF2 fonts are
+// compressed already.
 func compressible(name string) bool {
 	switch path.Ext(name) {
-	case ".js", ".css", ".html", ".svg", ".json", ".map", ".txt":
+	case ".js", ".css", ".html", ".svg", ".json", ".txt":
 		return true
 	}
 	return false
