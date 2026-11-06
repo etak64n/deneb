@@ -114,7 +114,7 @@ This section lists what deneb does, and its limits.
 
 ### Uploads
 
-- A file arrives in one PUT to the upload URL of its video, which any HTTP client sends, such as `curl -T`.
+- A file arrives in one PUT to the upload URL of its video, which any HTTP client sends, such as `curl -X PUT -T`.
 - A file can also arrive over tus 1.0 (tusd), which resumes after a lost connection. Any tus client works, such as tus-js-client in browsers and Node.js.
 - A file can be up to 50 GB, which `DENEB_MAX_UPLOAD_GB` changes.
 - A video takes one file. An upload for a video that has its file gets 409.
@@ -369,10 +369,10 @@ UPLOAD_URL=$(curl -s "$DENEB/v1/videos" \
   -d '{"title": "Product tour"}' | jq -r .upload.url)
 
 # Send the file there in one PUT. deneb answers with the video, now queued.
-curl -T clip.mp4 "$UPLOAD_URL"
+curl -X PUT -T clip.mp4 "$UPLOAD_URL"
 ```
 
-- `curl -T` sends the file as the body of a PUT.
+- `-X PUT -T` sends the file as the body of a PUT.
 - The upload URL carries a token for this video only, so it needs no key of the API. It works for 24 hours.
 - The video becomes `queued` when the file has arrived, then `processing`, then `ready`.
 

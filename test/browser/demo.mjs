@@ -241,7 +241,7 @@ await pause(1600);
 
 console.log("Send the file in one PUT");
 await call("caption", "Send the file to that URL in one PUT");
-await call("type", `curl -T welcome.mp4 "$UPLOAD_URL" | jq '.video | {id, status}'`);
+await call("type", `curl -X PUT -T welcome.mp4 "$UPLOAD_URL" | jq '.video | {id, status}'`);
 const put = await fetch(created.upload.url, { method: "PUT", body: clip });
 if (put.status !== 200) throw new Error(`send the file: ${put.status} ${await put.text()}`);
 const uploaded = (await put.json()).video;
