@@ -39,6 +39,9 @@ jobs:
 
       - run: pnpm --dir test/browser install --frozen-lockfile
 
+      # Playwright records pages with an ffmpeg of its own, apart from the browser.
+      - run: pnpm --dir test/browser exec playwright install ffmpeg
+
       - run: ./test/browser/run.sh deneb:demo demo.mjs
 
       - run: ./test/browser/gif.sh deneb:demo test/browser/out/demo
