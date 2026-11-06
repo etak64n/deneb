@@ -227,7 +227,7 @@ await call("card", null);
 await pause(500);
 
 console.log("Create a video");
-await call("caption", "1  Create a video, and get the URL for its file");
+await call("caption", "Create a video, and get the URL for its file");
 await call(
   "type",
   `UPLOAD_URL=$(curl -s -X POST $DENEB/v1/videos \\\n    -H "Authorization: Bearer $KEY" \\\n    -d '{"title": "Welcome to deneb"}' | jq -r .upload.url)`,
@@ -240,7 +240,7 @@ await call("print", `<span class="string">${created.upload.url}</span>`);
 await pause(1600);
 
 console.log("Send the file in one PUT");
-await call("caption", "2  Send the file to that URL in one PUT");
+await call("caption", "Send the file to that URL in one PUT");
 await call("type", `curl -T welcome.mp4 "$UPLOAD_URL" | jq '.video | {id, status}'`);
 const put = await fetch(created.upload.url, { method: "PUT", body: clip });
 if (put.status !== 200) throw new Error(`send the file: ${put.status} ${await put.text()}`);
@@ -250,7 +250,7 @@ await call("print", highlight({ id: uploaded.id, status: uploaded.status }));
 await pause(1600);
 
 console.log("Follow the encoding and the webhooks");
-await call("caption", "3  deneb encodes it, writes captions, and calls your webhook");
+await call("caption", "deneb encodes it, writes captions, and calls your webhook");
 await call("type", "# deneb encodes it to HLS and writes its captions with Whisper", "comment");
 const spinner = ["◐", "◓", "◑", "◒"];
 let shown = 0;
@@ -283,7 +283,7 @@ for (let tick = 0; ; tick++) {
 await pause(1200);
 
 console.log("Get the playback URLs");
-await call("caption", "4  Get the URLs that deneb signed");
+await call("caption", "Get the URLs that deneb signed");
 await call("type", `curl -s $DENEB/v1/videos/${id} \\\n    -H "Authorization: Bearer $KEY" \\\n    | jq '.video | {status, captions, embed_url: .playback.embed_url}'`);
 const ready = (await api("GET", `/v1/videos/${id}`)).video;
 await pause(300);
@@ -291,7 +291,7 @@ await call("print", highlight({ status: ready.status, captions: ready.captions, 
 await pause(1800);
 
 console.log("Embed the video in the site");
-await call("caption", "5  Embed it in any site, with its captions");
+await call("caption", "Embed it in any site, with its captions");
 await call("embed", ready.playback.embed_url);
 const frame = page.frameLocator("#player iframe");
 await frame.locator("video").waitFor({ state: "attached", timeout: 30_000 });
@@ -309,7 +309,7 @@ await glide(player.x + player.width * 0.8, player.y + player.height + 60, 25);
 await pause(3800);
 
 console.log("Preview pictures on the seek bar");
-await call("caption", "6  The seek bar previews every moment");
+await call("caption", "The seek bar previews every moment");
 try {
   await glide(player.x + player.width / 2, player.y + player.height / 2, 20);
   const seek = frame.locator(".media-time-slider").first();
