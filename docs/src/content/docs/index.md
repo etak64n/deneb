@@ -3,7 +3,7 @@ title: Overview
 description: deneb is a self-hosted video API that runs as one Docker image. These pages explain how to run it, how to use its API, and how it works.
 ---
 
-deneb is a self-hosted video API that runs as one Docker image, as an alternative to hosted services such as Mux.
+deneb is a self-hosted video API that runs as one Docker image.
 You upload a video, and deneb encodes it to HLS in several qualities, writes captions with Whisper, and returns signed URLs to play or embed it.
 These pages explain how to run deneb, how to use its API, and how it works.
 
