@@ -1,0 +1,89 @@
+/*
+  The design tokens of the dashboard and the embed page: colors, type, sizes,
+  corners, and shadows. styles.css maps them onto the theme of Tailwind.
+*/
+:root {
+  /* Accent: the one color that marks what is active, selected, or clickable. */
+  --ds-accent: #533afd;
+  --ds-accent-hover: #4434d4;
+  --ds-accent-subtle: #eae7ff;
+  --ds-on-accent: #ffffff;
+  --ds-focus-ring: rgb(1 150 237 / 0.36); /* drawn as a 4px ring: box-shadow 0 0 0 4px */
+
+  /* Text, from the darkest to the lightest. */
+  --ds-text-heading: #30313d;
+  --ds-text-strong: #1a2c44;
+  --ds-text-control: #273951;
+  --ds-text: #414552;
+  --ds-text-label: #3c4f69;
+  --ds-text-subdued: #667691;
+  --ds-text-placeholder: #a3acba;
+
+  /* Surfaces. */
+  --ds-surface: #ffffff;
+  --ds-surface-subdued: #f4f7fa;
+  --ds-surface-hover: #f4f7fa; /* the same gray as the subdued surface */
+
+  /* Lines. */
+  --ds-border: #d4dee9;
+  --ds-hairline: #ecf1f6;
+
+  /* Status. These never color a chart series. */
+  --ds-positive: #217005;
+  --ds-positive-subtle: #eafcdd;
+  --ds-positive-border: #a8f170;
+  --ds-attention: #a82c00;
+  --ds-critical: #df1b41;
+
+  /* Chart series, in the order that resources take them. */
+  --ds-series-1: #9966ff;
+  --ds-series-2: #0055bc;
+  --ds-series-3: #00a1c2;
+  --ds-series-4: #ed6804;
+  --ds-series-5: #b3063d;
+  --ds-series-other: #8792a2;
+  --ds-series-ink: #30313d;
+  --ds-series-muted: #95a4ba;
+
+  /* Chart frame. */
+  --ds-chart-grid: #d4dee9;
+  --ds-chart-baseline: #bac8da;
+  --ds-chart-crosshair: #667691;
+
+  /* Type. */
+  --ds-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Ubuntu, "Hiragino Sans", "Yu Gothic UI",
+    "Meiryo UI", "Hiragino Kaku Gothic ProN", sans-serif;
+  --ds-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --ds-text-xs: 12px;
+  --ds-text-xs-leading: 16px;
+  --ds-text-sm: 14px;
+  --ds-text-sm-leading: 20px;
+  --ds-text-md: 16px;
+  --ds-text-md-leading: 24px;
+  --ds-text-lg: 20px;
+  --ds-text-lg-leading: 28px;
+  --ds-text-xl: 28px;
+  --ds-text-xl-leading: 36px;
+
+  /* Corners. */
+  --ds-radius-xs: 4px;
+  --ds-radius-sm: 6px;
+  --ds-radius-md: 8px;
+  --ds-radius-lg: 12px;
+  --ds-radius-pill: 9999px;
+
+  /* Elevation. Panels on the page have none; only things that float over it do. */
+  --ds-shadow-tooltip: 0 3px 6px rgb(0 0 0 / 0.12), 0 7px 14px rgb(48 49 61 / 0.08);
+  --ds-shadow-popover: 0 5px 15px rgb(0 0 0 / 0.12), 0 15px 35px rgb(48 49 61 / 0.08);
+
+  /* Sizes. */
+  --ds-control-height: 28px;
+  --ds-pill-height: 24px;
+  --ds-nav-item-height: 30px;
+  --ds-field-height: 36px;
+  --ds-sidebar-width: 240px;
+  --ds-page-gutter: 40px;
+  --ds-content-max-width: 1280px;
+  --ds-popover-radius: 16px;
+  --ds-search-width: 360px;
+}

@@ -1,0 +1,8 @@
+# The build output of the dashboard. dist/.keep stays, so that go:embed finds the folder.
+/web/node_modules/
+/web/dist/*
+!/web/dist/.keep
+
+# The binary and the data of a local run.
+/deneb
+/data/

@@ -1,0 +1,6 @@
+.git
+.github
+**/node_modules
+web/dist
+*.md
+compose.yaml

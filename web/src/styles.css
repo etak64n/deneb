@@ -1,0 +1,105 @@
+@import "tailwindcss";
+/* The values of the design: colors, type, corners, and shadows. */
+@import "./tokens.css";
+
+@theme inline {
+  --color-accent: var(--ds-accent);
+  --color-accent-hover: var(--ds-accent-hover);
+  --color-accent-subtle: var(--ds-accent-subtle);
+  --color-on-accent: var(--ds-on-accent);
+  --color-heading: var(--ds-text-heading);
+  --color-strong: var(--ds-text-strong);
+  --color-control: var(--ds-text-control);
+  --color-ink: var(--ds-text);
+  --color-label: var(--ds-text-label);
+  --color-subdued: var(--ds-text-subdued);
+  --color-placeholder: var(--ds-text-placeholder);
+  --color-surface: var(--ds-surface);
+  --color-surface-subdued: var(--ds-surface-subdued);
+  --color-surface-hover: var(--ds-surface-hover);
+  --color-border: var(--ds-border);
+  --color-hairline: var(--ds-hairline);
+  --color-positive: var(--ds-positive);
+  --color-positive-subtle: var(--ds-positive-subtle);
+  --color-positive-border: var(--ds-positive-border);
+  --color-attention: var(--ds-attention);
+  --color-critical: var(--ds-critical);
+  --radius-xs: var(--ds-radius-xs);
+  --radius-sm: var(--ds-radius-sm);
+  --radius-md: var(--ds-radius-md);
+  --radius-lg: var(--ds-radius-lg);
+  --radius-xl: var(--ds-popover-radius);
+  --shadow-popover: var(--ds-shadow-popover);
+  --font-sans: var(--ds-font);
+  --font-mono: var(--ds-font-mono);
+}
+
+/* The headings of pages and sections, and large figures. 14px and 12px are text-sm and text-xs. */
+@theme {
+  --text-figure: 20px;
+  --text-figure--line-height: 28px;
+  --text-display: 28px;
+  --text-display--line-height: 36px;
+  --spacing-sidebar: 240px;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-family: var(--ds-font);
+  font-size: 14px;
+  line-height: 20px;
+  line-break: strict;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Keyboard focus: a light blue ring of 4px. */
+:focus-visible {
+  outline: 4px solid var(--ds-focus-ring);
+  outline-offset: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@layer components {
+  .field {
+    @apply h-7 w-full rounded-sm bg-surface px-2 text-sm text-ink shadow-[0_0_0_1px_var(--ds-border)] placeholder:text-placeholder pointer-coarse:min-h-11 pointer-coarse:text-base;
+  }
+  .numeric {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+dialog::backdrop {
+  background: rgb(48 49 61 / 0.5);
+}
+
+/* The embed page: the player fills the frame on black. */
+body.embed {
+  margin: 0;
+  background: #000;
+  overflow: hidden;
+}
+
+.deneb-player {
+  --media-accent-color: var(--ds-accent);
+  --media-font-family: var(--ds-font);
+  --media-object-fit: contain;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+
+body.embed .deneb-player {
+  width: 100vw;
+  height: 100vh;
+  aspect-ratio: auto;
+  --media-border-radius: 0;
+}
