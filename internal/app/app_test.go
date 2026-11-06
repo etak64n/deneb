@@ -142,7 +142,7 @@ func TestViewSignsReadyVideosForAnHour(t *testing.T) {
 	if first.CaptionsURL != "" || !strings.HasPrefix(first.EmbedURL, "https://video.example.com/embed/vid_a?token=") {
 		t.Errorf("playback %+v", first)
 	}
-	if want := time.Date(2026, 11, 7, 11, 0, 0, 0, time.UTC); !first.ExpiresAt.Equal(want) {
+	if want := time.Date(2026, 11, 7, 11, 0, 0, 0, time.UTC); first.ExpiresAt == nil || !first.ExpiresAt.Equal(want) {
 		t.Errorf("expires at %v, want %v", first.ExpiresAt, want)
 	}
 	a.now = func() time.Time { return at.Add(40 * time.Minute) }
@@ -152,6 +152,46 @@ func TestViewSignsReadyVideosForAnHour(t *testing.T) {
 	a.now = func() time.Time { return at.Add(50 * time.Minute) }
 	if next := a.View(video, "https://video.example.com").Playback; next.HLSURL == first.HLSURL {
 		t.Error("the URL stayed the same in the next hour")
+	}
+}
+
+func TestPublicPlayback(t *testing.T) {
+	ctx := context.Background()
+	a := newApp(t)
+	video, _, err := a.CreateVideo(ctx, "Talk", "https://video.example.com", true)
+	if err != nil || !video.Public {
+		t.Fatalf("create a public video: %+v, %v", video, err)
+	}
+	a.store.QueueVideo(ctx, video.ID, 1, a.now())
+	a.store.ReadyVideo(ctx, video.ID, 10, 1280, 720, nil, false, a.now())
+	video, _ = a.store.Video(ctx, video.ID)
+
+	view := a.View(video, "https://video.example.com")
+	want := "https://video.example.com/play/" + video.ID + "/public/"
+	if !view.Public || view.Playback == nil || view.Playback.HLSURL != want+"hls/master.m3u8" || view.Playback.PosterURL != want+"poster.jpg" ||
+		view.Playback.EmbedURL != "https://video.example.com/embed/"+video.ID || view.Playback.ExpiresAt != nil {
+		t.Fatalf("view %+v, playback %+v", view, view.Playback)
+	}
+	if allowed, err := a.PlaybackAllowed(ctx, video.ID, PublicToken); !allowed || err != nil {
+		t.Errorf("public URLs of a public video: %v, %v", allowed, err)
+	}
+	if allowed, _ := a.PlaybackAllowed(ctx, "vid_missing", PublicToken); allowed {
+		t.Error("public URLs of a missing video are allowed")
+	}
+
+	// A private video plays under signed URLs only, and its public URLs end at once.
+	a.store.SetVideoPublic(ctx, video.ID, false, a.now())
+	video, _ = a.store.Video(ctx, video.ID)
+	signed := a.View(video, "https://video.example.com").Playback
+	if signed == nil || signed.ExpiresAt == nil || strings.Contains(signed.HLSURL, "/public/") || !strings.Contains(signed.EmbedURL, "?token=") {
+		t.Fatalf("playback of a private video %+v", signed)
+	}
+	if allowed, _ := a.PlaybackAllowed(ctx, video.ID, PublicToken); allowed {
+		t.Error("public URLs of a private video are allowed")
+	}
+	token := strings.Split(strings.TrimPrefix(signed.HLSURL, "https://video.example.com/play/"+video.ID+"/"), "/")[0]
+	if allowed, _ := a.PlaybackAllowed(ctx, video.ID, token); !allowed {
+		t.Error("the signed URLs of a private video are refused")
 	}
 }
 

@@ -29,6 +29,7 @@ A video goes through six steps.
 - No quality is larger than its source (internal/media/ladder.go). A larger quality would cost bandwidth and show no more detail.
 - A playback URL carries its signed token in the path (internal/app/app.go). The relative URLs inside the playlists then carry the token too.
 - The playback URLs of a video stay the same for an hour, so players and CDNs can reuse what they fetched.
+- A public video has `public` in place of the token in its playback URLs (internal/app/app.go). deneb reads the video on each request with them, so making it private ends them at once, unlike a signed URL that lasts until it expires.
 - With S3 storage, the media go through deneb by default (internal/storage/s3.go). Browsers then need no route to the endpoint of the bucket, and the bucket needs no CORS rules, the rules that let pages of other sites read its files. `DENEB_S3_REDIRECTS=true` sends players to the bucket instead, which spares the bandwidth of deneb.
 - Captions run on the CPU of the server (internal/media/captions.go). The audio of your videos goes to no other service.
 - The first administrator needs a setup code from the log (internal/app/auth.go). Without it, the first person to reach a new server could claim it.

@@ -129,7 +129,8 @@ func (s *Server) listVideos(w http.ResponseWriter, r *http.Request, _ caller) {
 
 func (s *Server) createVideo(w http.ResponseWriter, r *http.Request, _ caller) {
 	var body struct {
-		Title string `json:"title"`
+		Title  string `json:"title"`
+		Public bool   `json:"public"`
 	}
 	if !readJSON(w, r, &body) {
 		return
@@ -140,7 +141,7 @@ func (s *Server) createVideo(w http.ResponseWriter, r *http.Request, _ caller) {
 		return
 	}
 	base := s.baseURL(r)
-	video, upload, err := s.app.CreateVideo(r.Context(), title, base)
+	video, upload, err := s.app.CreateVideo(r.Context(), title, base, body.Public)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -159,7 +160,8 @@ func (s *Server) getVideo(w http.ResponseWriter, r *http.Request, _ caller) {
 
 func (s *Server) updateVideo(w http.ResponseWriter, r *http.Request, _ caller) {
 	var body struct {
-		Title *string `json:"title"`
+		Title  *string `json:"title"`
+		Public *bool   `json:"public"`
 	}
 	if !readJSON(w, r, &body) {
 		return
@@ -172,6 +174,12 @@ func (s *Server) updateVideo(w http.ResponseWriter, r *http.Request, _ caller) {
 			return
 		}
 		if err := s.app.Store().SetVideoTitle(r.Context(), id, title, s.app.Now()); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
+	if body.Public != nil {
+		if err := s.app.Store().SetVideoPublic(r.Context(), id, *body.Public, s.app.Now()); err != nil {
 			s.fail(w, err)
 			return
 		}

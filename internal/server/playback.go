@@ -26,15 +26,21 @@ func (s *Server) playOptions(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// play serves the files of a ready video under a signed URL:
-// /play/<video>/<token>/hls/master.m3u8, its playlists and segments, poster.jpg,
-// storyboard.vtt and storyboard.jpg, captions.vtt, and info.json for the embed page.
-// The token sits in the path, so the relative URLs inside playlists carry it too.
+// play serves the files of a ready video under a signed URL, or under "public" in
+// place of the token for a public video: /play/<video>/<token>/hls/master.m3u8, its
+// playlists and segments, poster.jpg, storyboard.vtt and storyboard.jpg, captions.vtt,
+// and info.json for the embed page. The token sits in the path, so the relative URLs
+// inside playlists carry it too.
 func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 	allowAnyOrigin(w)
 	id, token, name := r.PathValue("id"), r.PathValue("token"), r.PathValue("path")
-	if !s.app.VerifyPlaybackToken(id, token) {
-		http.Error(w, "the playback URL is invalid or expired", http.StatusForbidden)
+	allowed, err := s.app.PlaybackAllowed(r.Context(), id, token)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if !allowed {
+		http.Error(w, "the playback URL is invalid, expired, or no longer public", http.StatusForbidden)
 		return
 	}
 	if name == "info.json" {
@@ -128,12 +134,21 @@ func (s *Server) playInfo(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 // embed serves the player page that sites put in an iframe. The page reads the
-// video and the token from its URL, and plays the stream through /play. With a token
-// that is wrong or expired, the page still loads, with 403, and says the video is not
-// available, rather than a bare error in the frame of another site.
+// video and the token from its URL, and plays the stream through /play; the URL of a
+// public video has no token. With a token that is wrong or expired, or a video that is
+// not public, the page still loads, with 403, and says the video is not available,
+// rather than a bare error in the frame of another site.
 func (s *Server) embed(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		token = app.PublicToken
+	}
 	status := http.StatusOK
-	if !s.app.VerifyPlaybackToken(r.PathValue("id"), r.URL.Query().Get("token")) {
+	allowed, err := s.app.PlaybackAllowed(r.Context(), r.PathValue("id"), token)
+	if err != nil {
+		s.log.Error("check an embed URL", "video", r.PathValue("id"), "error", err)
+		status = http.StatusInternalServerError
+	} else if !allowed {
 		status = http.StatusForbidden
 	}
 	w.Header().Set("Cache-Control", "no-cache")

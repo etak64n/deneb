@@ -40,6 +40,8 @@ function settled(video: Video): boolean {
 /** The playback of a fresh look at a video, keeping the URLs that the player has while they last. */
 function keepPlayback(old: Playback | undefined, fresh: Playback | undefined): Playback | undefined {
   if (old === undefined || fresh === undefined) return fresh;
+  // Public URLs never change, and a switch between public and signed changes them all.
+  if (old.expires_at === null || fresh.expires_at === null) return fresh;
   // New URLs would restart the player; only the captions, once written, are new.
   if (Date.parse(old.expires_at) - Date.now() > RENEW_MS) return { ...old, captions_url: fresh.captions_url };
   return fresh;
@@ -65,6 +67,7 @@ export function VideoPage({ id, captions }: { id: string; captions: boolean }) {
   const [error, setError] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   useTitle(video?.title || (video ? "Untitled" : ""));
 
   const load = useCallback(() => {
@@ -88,7 +91,8 @@ export function VideoPage({ id, captions }: { id: string; captions: boolean }) {
   // A page left open asks for new URLs before the ones it has expire.
   const expiresAt = video?.playback?.expires_at;
   useEffect(() => {
-    if (expiresAt === undefined) return;
+    // The URLs of a public video never expire.
+    if (expiresAt === undefined || expiresAt === null) return;
     const wait = Date.parse(expiresAt) - Date.now() - RENEW_MS;
     // setTimeout cannot wait longer than about 24 days.
     if (wait > 2_000_000_000) return;
@@ -171,7 +175,7 @@ export function VideoPage({ id, captions }: { id: string; captions: boolean }) {
       </div>
 
       {playback && (
-        <Section title="Playback">
+        <Section title="Playback" actions={<Button onClick={() => setPublishing(true)}>{video.public ? "Make private" : "Make public"}</Button>}>
           <div className="grid gap-4">
             <div className="grid gap-1.5">
               <h3 className="text-sm font-bold text-strong">HLS URL</h3>
@@ -181,7 +185,9 @@ export function VideoPage({ id, captions }: { id: string; captions: boolean }) {
               <h3 className="text-sm font-bold text-strong">Embed</h3>
               <CodeBox text={embedCode(video, playback)} />
             </div>
-            <p className="numeric text-xs text-subdued">Expires {formatDateTime(playback.expires_at)}</p>
+            <p className="numeric text-xs text-subdued">
+              {playback.expires_at === null ? "Public. These URLs never expire." : `Expires ${formatDateTime(playback.expires_at)}`}
+            </p>
           </div>
         </Section>
       )}
@@ -222,6 +228,24 @@ export function VideoPage({ id, captions }: { id: string; captions: boolean }) {
           setRenaming(false);
         }}
       />
+      <ConfirmDialog
+        open={publishing}
+        title={video.public ? "Make this video private?" : "Make this video public?"}
+        confirmLabel={video.public ? "Make private" : "Make public"}
+        onClose={() => setPublishing(false)}
+        onConfirm={() =>
+          api.setVideoPublic(video.id, !video.public).then(({ video: changed }) => {
+            setVideo((old) => ({ ...changed, playback: keepPlayback(old?.playback, changed.playback) }));
+            setPublishing(false);
+          })
+        }
+      >
+        <p className="text-sm text-label">
+          {video.public
+            ? "Its public URLs, and the embed codes that use them, stop working at once. Pages then need the signed URLs of the API."
+            : "Anyone with its URLs can play it, and the URLs never expire. Making it private again ends them."}
+        </p>
+      </ConfirmDialog>
       <ConfirmDialog
         open={deleting}
         title={`Delete ${video.title ? `“${video.title}”` : "this video"}?`}

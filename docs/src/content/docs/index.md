@@ -17,7 +17,7 @@ The source and the releases are on [GitHub](https://github.com/etak64n/deneb). d
 ## Guides
 
 - [Upload videos](/deneb/guides/uploads/): a file in one PUT, with tus, which resumes after a lost connection, or from the browser of your user
-- [Play videos](/deneb/guides/playback/): the signed URLs of a ready video, how long they last, and the embed page
+- [Play videos](/deneb/guides/playback/): the URLs of a ready video, signed or public, and the embed page
 - [Webhooks](/deneb/guides/webhooks/): the events, their delivery and retries, and how to verify their signature
 - [Captions](/deneb/guides/captions/): captions with whisper.cpp, its models and languages, and their cost in CPU time
 - [S3-compatible storage](/deneb/guides/storage/): the media in a bucket of Amazon S3, Cloudflare R2, or another S3-compatible service

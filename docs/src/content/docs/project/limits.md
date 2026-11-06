@@ -9,7 +9,6 @@ A limit that a setting changes, such as the largest upload, is on the [Configura
 ## What deneb does not do
 
 - deneb does not stream live video.
-- deneb has no public playback. Every playback URL expires, so your app asks deneb for the video when it shows it.
 - deneb has no DRM, the encryption that only licensed players can undo. Signed URLs keep the stream from people who do not have a URL, not from people who do.
 - deneb does not tone-map HDR. An HDR source becomes 8-bit SDR as it is, so its colors look flat.
 - deneb offers no MP4 downloads of its encodings.

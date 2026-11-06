@@ -48,13 +48,15 @@ type Video struct {
 	Renditions       []Rendition
 	CaptionsStatus   string
 	CaptionsLanguage string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	ReadyAt          *time.Time
+	// Public lets anyone play the video under URLs that never expire.
+	Public    bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	ReadyAt   *time.Time
 }
 
 const videoColumns = `id, title, status, error, progress, source_size, duration, width, height, renditions,
-	captions_status, captions_language, created_at, updated_at, ready_at`
+	captions_status, captions_language, public, created_at, updated_at, ready_at`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -66,7 +68,7 @@ func scanVideo(row scanner) (Video, error) {
 	var created, updated int64
 	var ready sql.NullInt64
 	err := row.Scan(&video.ID, &video.Title, &video.Status, &video.Error, &video.Progress, &video.SourceSize, &video.Duration,
-		&video.Width, &video.Height, &renditions, &video.CaptionsStatus, &video.CaptionsLanguage, &created, &updated, &ready)
+		&video.Width, &video.Height, &renditions, &video.CaptionsStatus, &video.CaptionsLanguage, &video.Public, &created, &updated, &ready)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Video{}, ErrNotFound
 	}
@@ -132,6 +134,16 @@ func (s *Store) ListVideos(ctx context.Context, after *VideoCursor, limit int) (
 // SetVideoTitle renames a video.
 func (s *Store) SetVideoTitle(ctx context.Context, id, title string, now time.Time) error {
 	return expectRow(s.db.ExecContext(ctx, `UPDATE videos SET title = ?, updated_at = ? WHERE id = ?`, title, millis(now), id))
+}
+
+// SetVideoPublic makes a video public, so that it plays under URLs that never expire,
+// or makes it play under signed URLs only, which ends its public URLs.
+func (s *Store) SetVideoPublic(ctx context.Context, id string, public bool, now time.Time) error {
+	value := 0
+	if public {
+		value = 1
+	}
+	return expectRow(s.db.ExecContext(ctx, `UPDATE videos SET public = ?, updated_at = ? WHERE id = ?`, value, millis(now), id))
 }
 
 // QueueVideo records that the upload of a video finished, and queues its encoding,

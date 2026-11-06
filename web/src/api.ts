@@ -16,12 +16,14 @@ export interface Playback {
   storyboard_url: string;
   captions_url?: string;
   embed_url: string;
-  expires_at: string;
+  /** When the URLs expire, or null for a public video, whose URLs never do. */
+  expires_at: string | null;
 }
 
 export interface Video {
   id: string;
   title: string;
+  public: boolean;
   status: VideoStatus;
   error?: string;
   progress: number;
@@ -131,6 +133,7 @@ export const api = {
   getVideo: (id: string) => request<{ video: Video }>("GET", `/v1/videos/${encodeURIComponent(id)}`),
   createVideo: (title: string) => request<{ video: Video; upload: Upload }>("POST", "/v1/videos", { title }),
   renameVideo: (id: string, title: string) => request<{ video: Video }>("PATCH", `/v1/videos/${encodeURIComponent(id)}`, { title }),
+  setVideoPublic: (id: string, isPublic: boolean) => request<{ video: Video }>("PATCH", `/v1/videos/${encodeURIComponent(id)}`, { public: isPublic }),
   deleteVideo: (id: string) => request<void>("DELETE", `/v1/videos/${encodeURIComponent(id)}`),
 
   listApiKeys: () => request<{ api_keys: ApiKey[] }>("GET", "/v1/api-keys"),

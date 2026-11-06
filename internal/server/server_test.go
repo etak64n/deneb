@@ -483,7 +483,7 @@ func TestUpload(t *testing.T) {
 	}
 
 	// The file of a video deleted during its upload is refused, and removed.
-	_, gone, _ := h.app.CreateVideo(context.Background(), "", "")
+	_, gone, _ := h.app.CreateVideo(context.Background(), "", "", false)
 	r = h.tusCreate(len(data), gone.Tus.Metadata)
 	if r.status != http.StatusCreated {
 		t.Fatalf("create the upload: %d %s", r.status, r.body)
@@ -544,7 +544,7 @@ func TestPutUpload(t *testing.T) {
 func TestUploadURLs(t *testing.T) {
 	start := func(h *harness, headers ...string) string {
 		h.t.Helper()
-		_, upload, err := h.app.CreateVideo(context.Background(), "", "")
+		_, upload, err := h.app.CreateVideo(context.Background(), "", "", false)
 		if err != nil {
 			h.t.Fatal(err)
 		}
@@ -651,6 +651,69 @@ func TestPlayback(t *testing.T) {
 	// The page itself says that the video is not available.
 	if r := h.do("GET", "/embed/"+id+"?token=123.abc", nil); r.status != http.StatusForbidden || !strings.Contains(string(r.body), "<title>embed</title>") {
 		t.Errorf("embed with a forged token: %d %s", r.status, r.body)
+	}
+	// Without a token, the embed page is for public videos only.
+	if r := h.do("GET", "/embed/"+id, nil); r.status != http.StatusForbidden {
+		t.Errorf("embed of a private video without a token: %d", r.status)
+	}
+	if r := h.do("GET", "/play/"+id+"/public/hls/master.m3u8", nil); r.status != http.StatusForbidden {
+		t.Errorf("public URL of a private video: %d", r.status)
+	}
+}
+
+func TestPublicPlayback(t *testing.T) {
+	h := newHarness(t, nil)
+	h.signIn()
+	ctx := context.Background()
+	var created createdVideo
+	h.dashboard("POST", "/v1/videos", map[string]any{"title": "Clip", "public": true}).json(t, &created)
+	id := created.Video.ID
+	if !created.Video.Public {
+		t.Fatalf("created %+v", created.Video)
+	}
+	h.app.Store().QueueVideo(ctx, id, 1, time.Now())
+	h.app.Store().ReadyVideo(ctx, id, 9, 1280, 720, nil, false, time.Now())
+	local := filepath.Join(t.TempDir(), "master.m3u8")
+	os.WriteFile(local, []byte("#EXTM3U\n"), 0o644)
+	if err := h.files.PutFile(ctx, "videos/"+id+"/hls/master.m3u8", local); err != nil {
+		t.Fatal(err)
+	}
+
+	var got struct {
+		Video app.VideoView `json:"video"`
+	}
+	h.do("GET", "/v1/videos/"+id, nil).json(t, &got)
+	playback := got.Video.Playback
+	if playback == nil || playback.HLSURL != h.url+"/play/"+id+"/public/hls/master.m3u8" || playback.EmbedURL != h.url+"/embed/"+id || playback.ExpiresAt != nil {
+		t.Fatalf("playback %+v", playback)
+	}
+	session := h.client.Jar
+	h.client.Jar, _ = cookiejar.New(nil) // Viewers have no session.
+	if r := h.do("GET", "/play/"+id+"/public/hls/master.m3u8", nil); r.status != http.StatusOK || string(r.body) != "#EXTM3U\n" {
+		t.Errorf("public master playlist: %d %q", r.status, r.body)
+	}
+	if r := h.do("GET", "/embed/"+id, nil); r.status != http.StatusOK {
+		t.Errorf("embed of a public video: %d", r.status)
+	}
+
+	// Making the video private ends its public URLs at once.
+	h.client.Jar = session
+	var changed struct {
+		Video app.VideoView `json:"video"`
+	}
+	h.dashboard("PATCH", "/v1/videos/"+id, map[string]any{"public": false}).json(t, &changed)
+	if changed.Video.Public || changed.Video.Playback == nil || changed.Video.Playback.ExpiresAt == nil {
+		t.Fatalf("private video %+v", changed.Video)
+	}
+	h.client.Jar, _ = cookiejar.New(nil)
+	if r := h.do("GET", "/play/"+id+"/public/hls/master.m3u8", nil); r.status != http.StatusForbidden {
+		t.Errorf("public URL of a video made private: %d", r.status)
+	}
+	if r := h.do("GET", "/embed/"+id, nil); r.status != http.StatusForbidden {
+		t.Errorf("embed without a token of a video made private: %d", r.status)
+	}
+	if r := h.do("GET", strings.TrimPrefix(changed.Video.Playback.HLSURL, h.url), nil); r.status != http.StatusOK {
+		t.Errorf("signed URL of a private video: %d", r.status)
 	}
 }
 

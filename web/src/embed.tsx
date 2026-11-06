@@ -1,5 +1,6 @@
-// The embed page: /embed/<video>?token=<playback token>. Sites put it in an iframe.
-// It plays the stream of the video through the signed /play URLs of the same token.
+// The embed page: /embed/<video>?token=<playback token>, or /embed/<video> for a public
+// video. Sites put it in an iframe. It plays the stream of the video through the /play
+// URLs of the same token, or of "public" in its place.
 
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -14,7 +15,7 @@ interface Info {
 
 function Embed() {
   const id = decodeURIComponent(window.location.pathname.split("/")[2] ?? "");
-  const token = new URLSearchParams(window.location.search).get("token") ?? "";
+  const token = new URLSearchParams(window.location.search).get("token") ?? "public";
   const root = `/play/${encodeURIComponent(id)}/${encodeURIComponent(token)}/`;
   const [info, setInfo] = useState<Info | null>(null);
   const [failed, setFailed] = useState(false);

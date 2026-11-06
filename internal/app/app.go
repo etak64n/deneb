@@ -171,6 +171,27 @@ func (a *App) VerifyPlaybackToken(videoID, token string) bool {
 	return a.verify("playback", videoID, token)
 }
 
+// PublicToken stands in the place of the token in the playback URLs of a public video,
+// which never expire. No signed token can equal it, since those hold a dot.
+const PublicToken = "public"
+
+// PlaybackAllowed tells whether a playback URL with this token may serve the video:
+// a signed token that has not expired, or PublicToken while the video is public. It
+// reads the video for PublicToken, so that making a video private ends its URLs at once.
+func (a *App) PlaybackAllowed(ctx context.Context, videoID, token string) (bool, error) {
+	if token != PublicToken {
+		return a.VerifyPlaybackToken(videoID, token), nil
+	}
+	video, err := a.store.Video(ctx, videoID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return video.Public, nil
+}
+
 // Storage keys of the files of a video.
 func videoPrefix(id string) string { return "videos/" + id + "/" }
 func sourceKey(id string) string   { return videoPrefix(id) + "source" }
@@ -197,6 +218,7 @@ func PlaybackKey(videoID, path string) string {
 type VideoView struct {
 	ID         string            `json:"id"`
 	Title      string            `json:"title"`
+	Public     bool              `json:"public"`
 	Status     string            `json:"status"`
 	Error      string            `json:"error,omitempty"`
 	Progress   float64           `json:"progress"`
@@ -217,21 +239,22 @@ type CaptionsView struct {
 	Language string `json:"language,omitempty"`
 }
 
-// PlaybackView holds the signed URLs that play a ready video until ExpiresAt.
+// PlaybackView holds the URLs that play a ready video: signed ones until ExpiresAt,
+// or, for a public video, ones that never expire, with a nil ExpiresAt.
 type PlaybackView struct {
-	HLSURL        string    `json:"hls_url"`
-	PosterURL     string    `json:"poster_url"`
-	StoryboardURL string    `json:"storyboard_url"`
-	CaptionsURL   string    `json:"captions_url,omitempty"`
-	EmbedURL      string    `json:"embed_url"`
-	ExpiresAt     time.Time `json:"expires_at"`
+	HLSURL        string     `json:"hls_url"`
+	PosterURL     string     `json:"poster_url"`
+	StoryboardURL string     `json:"storyboard_url"`
+	CaptionsURL   string     `json:"captions_url,omitempty"`
+	EmbedURL      string     `json:"embed_url"`
+	ExpiresAt     *time.Time `json:"expires_at"`
 }
 
 // View returns the API form of a video. URLs start with base, such as
 // https://video.example.com, or are paths when base is empty.
 func (a *App) View(video store.Video, base string) VideoView {
 	view := VideoView{
-		ID: video.ID, Title: video.Title, Status: video.Status, Error: video.Error, Progress: video.Progress,
+		ID: video.ID, Title: video.Title, Public: video.Public, Status: video.Status, Error: video.Error, Progress: video.Progress,
 		Duration: video.Duration, Width: video.Width, Height: video.Height, SourceSize: video.SourceSize,
 		Renditions: video.Renditions, CreatedAt: video.CreatedAt, ReadyAt: video.ReadyAt,
 		Captions: CaptionsView{Status: video.CaptionsStatus, Language: video.CaptionsLanguage},
@@ -240,20 +263,26 @@ func (a *App) View(video store.Video, base string) VideoView {
 		view.Renditions = []store.Rendition{}
 	}
 	if video.Status == store.VideoReady {
-		// Rounding up to the hour keeps the URLs the same for an hour, so that players
-		// and caches reuse them. They stay valid for at least TTL, at most an hour more.
-		exp := a.now().Add(a.cfg.PlaybackTTL)
-		if hour := exp.Truncate(time.Hour); !hour.Equal(exp) {
-			exp = hour.Add(time.Hour)
+		// A public video has URLs that never change, and an embed URL without a token.
+		token, embed, expires := PublicToken, fmt.Sprintf("%s/embed/%s", base, video.ID), (*time.Time)(nil)
+		if !video.Public {
+			// Rounding up to the hour keeps the URLs the same for an hour, so that players
+			// and caches reuse them. They stay valid for at least TTL, at most an hour more.
+			exp := a.now().Add(a.cfg.PlaybackTTL)
+			if hour := exp.Truncate(time.Hour); !hour.Equal(exp) {
+				exp = hour.Add(time.Hour)
+			}
+			token = a.sign("playback", video.ID, exp)
+			embed += "?token=" + token
+			expires = &exp
 		}
-		token := a.sign("playback", video.ID, exp)
 		root := fmt.Sprintf("%s/play/%s/%s/", base, video.ID, token)
 		view.Playback = &PlaybackView{
 			HLSURL:        root + "hls/master.m3u8",
 			PosterURL:     root + "poster.jpg",
 			StoryboardURL: root + "storyboard.vtt",
-			EmbedURL:      fmt.Sprintf("%s/embed/%s?token=%s", base, video.ID, token),
-			ExpiresAt:     exp,
+			EmbedURL:      embed,
+			ExpiresAt:     expires,
 		}
 		if video.CaptionsStatus == store.CaptionsReady {
 			view.Playback.CaptionsURL = root + "captions.vtt"
@@ -278,11 +307,17 @@ type TusView struct {
 	Metadata map[string]string `json:"metadata"`
 }
 
-// CreateVideo creates a video, and returns where to upload its file.
-func (a *App) CreateVideo(ctx context.Context, title, base string) (store.Video, UploadView, error) {
+// CreateVideo creates a video, public or not, and returns where to upload its file.
+func (a *App) CreateVideo(ctx context.Context, title, base string, public bool) (store.Video, UploadView, error) {
 	video, err := a.store.CreateVideo(ctx, NewID("vid"), title, a.now())
 	if err != nil {
 		return store.Video{}, UploadView{}, err
+	}
+	if public {
+		if err := a.store.SetVideoPublic(ctx, video.ID, true, a.now()); err != nil {
+			return store.Video{}, UploadView{}, err
+		}
+		video.Public = true
 	}
 	exp := a.now().Add(UploadTTL).Truncate(time.Second)
 	token := a.sign("upload", video.ID, exp)

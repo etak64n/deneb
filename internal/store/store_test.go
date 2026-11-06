@@ -327,3 +327,26 @@ func TestWebhookDeliveries(t *testing.T) {
 		t.Errorf("delivery of a removed webhook: %v", err)
 	}
 }
+
+func TestVideoPublic(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	if video, _ := s.CreateVideo(ctx, "vid_a", "", start); video.Public {
+		t.Error("a new video is public")
+	}
+	if err := s.SetVideoPublic(ctx, "vid_a", true, start); err != nil {
+		t.Fatal(err)
+	}
+	if video, _ := s.Video(ctx, "vid_a"); !video.Public {
+		t.Error("the video did not become public")
+	}
+	if err := s.SetVideoPublic(ctx, "vid_a", false, start); err != nil {
+		t.Fatal(err)
+	}
+	if video, _ := s.Video(ctx, "vid_a"); video.Public {
+		t.Error("the video stayed public")
+	}
+	if err := s.SetVideoPublic(ctx, "vid_missing", true, start); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a missing video: %v", err)
+	}
+}

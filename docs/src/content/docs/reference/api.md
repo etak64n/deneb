@@ -17,7 +17,7 @@ KEY=dnb_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 curl -s https://video.example.com/v1/videos -H "Authorization: Bearer $KEY"
 ```
 
-The upload URLs and the playback URLs carry tokens of their own, so they need no key.
+The upload URLs and the playback URLs carry tokens of their own, so they need no key. The playback URLs of a public video need neither.
 
 ## Errors
 
@@ -28,10 +28,10 @@ The upload URLs and the playback URLs carry tokens of their own, so they need no
 
 ## Videos
 
-- `POST /v1/videos` creates a video. The body may have a `title` of up to 300 characters. The answer is 201 with `video` and `upload`.
+- `POST /v1/videos` creates a video. The body may have a `title` of up to 300 characters, and `"public": true` for a public video. The answer is 201 with `video` and `upload`.
 - `GET /v1/videos` lists the videos, newest first, as `videos` and `next_cursor`. `limit` takes 1 to 100, 24 by default. `cursor` takes the `next_cursor` of the previous page, which is empty on the last page.
 - `GET /v1/videos/{id}` returns one `video`.
-- `PATCH /v1/videos/{id}` changes the `title`, and returns the `video`.
+- `PATCH /v1/videos/{id}` changes the `title`, `public`, or both, and returns the `video`.
 - `DELETE /v1/videos/{id}` deletes a video and answers 204. deneb stops the work on the video and removes its files a moment later.
 
 ## Uploads
@@ -52,6 +52,7 @@ The [Upload videos](/deneb/guides/uploads/) page shows both ways with curl, and 
   "video": {
     "id": "vid_7wfd5nhpwadrdxgd7laif6x7ry",
     "title": "Product tour",
+    "public": false,
     "status": "ready",
     "progress": 1,
     "duration": 8,
@@ -78,6 +79,7 @@ The [Upload videos](/deneb/guides/uploads/) page shows both ways with curl, and 
 }
 ```
 
+- `public` is true for a video that plays under URLs that never expire. Then the URLs of `playback` hold `public` in place of the token, and `expires_at` is null.
 - `status` is `waiting` for the file, `queued`, `processing`, `ready`, or `failed`. `error` tells why a video failed.
 - `progress` goes from 0 to 1 while the video is processing.
 - `duration` is in seconds. `width` and `height` are the size as displayed, after any rotation.
