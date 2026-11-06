@@ -14,6 +14,7 @@ A limit that a setting changes, such as the largest upload, is on the [Configura
 - deneb does not tone-map HDR. An HDR source becomes 8-bit SDR as it is, so its colors look flat.
 - deneb offers no MP4 downloads of its encodings.
 - deneb encodes on the CPU only.
+- deneb runs on one server, and does not spread its work over several. A second deneb stops at start when another one uses the data folder (cmd/deneb/lock_unix.go), since both would take the same jobs. A larger server and `DENEB_WORKERS` encode more at once, and a CDN in front of deneb, or `DENEB_S3_REDIRECTS`, spreads the load of playback.
 - deneb has one administrator, with no other accounts or roles.
 - deneb counts no views.
 
