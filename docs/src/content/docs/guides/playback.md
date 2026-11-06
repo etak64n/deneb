@@ -68,6 +68,7 @@ curl -s -X PATCH https://video.example.com/v1/videos/vid_7wfd5nhpwadrdxgd7laif6x
 ## Embed a video
 
 The embed page plays a video in an iframe on any site. The dashboard shows the iframe code of each video, in the shape of the video.
+The page shows the poster at once, and when deneb does not answer for a moment, as during an upgrade, it asks again a few times before it says that the video is not available.
 
 ```html
 <!-- The embed URL of the video in an iframe, in the shape of the video. -->

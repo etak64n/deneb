@@ -3,14 +3,18 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +35,8 @@ type Server struct {
 	locker  *memorylocker.MemoryLocker
 	mux     *http.ServeMux
 	limiter *limiter
+	// gzipped keeps the files of ui compressed by gzipFile, by their names.
+	gzipped sync.Map
 }
 
 // New returns the server. ui holds the built dashboard, with index.html and embed.html at its root.
@@ -209,7 +215,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 				// Vite names the assets by their content, so they never change.
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 			}
-			http.ServeFileFS(w, r, s.ui, name)
+			s.serveFile(w, r, name)
 			return
 		}
 		// An asset of another version, as asked by a tab opened before an upgrade, is
@@ -232,10 +238,93 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, name string, 
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Add("Vary", "Accept-Encoding")
+	if acceptsGzip(r) {
+		if compressed, err := s.gzipFile(name); err == nil {
+			w.Header().Set("Content-Encoding", "gzip")
+			page = compressed
+		}
+	}
 	w.WriteHeader(status)
 	if r.Method != http.MethodHead {
 		w.Write(page)
 	}
+}
+
+// serveFile answers a file of the dashboard, compressed with gzip when the browser
+// takes it and the file is of a kind that gzip shrinks. The embed page loads a
+// megabyte of scripts, a third of that once compressed.
+func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, name string) {
+	w.Header().Add("Vary", "Accept-Encoding")
+	// A range is a range of the file as it is, which a compressed answer would not keep.
+	if compressible(name) && acceptsGzip(r) && r.Header.Get("Range") == "" {
+		if compressed, err := s.gzipFile(name); err == nil {
+			w.Header().Set("Content-Type", mime.TypeByExtension(path.Ext(name)))
+			w.Header().Set("Content-Encoding", "gzip")
+			w.Header().Set("Content-Length", strconv.Itoa(len(compressed)))
+			if r.Method != http.MethodHead {
+				w.Write(compressed)
+			}
+			return
+		}
+	}
+	http.ServeFileFS(w, r, s.ui, name)
+}
+
+// compressible tells whether gzip shrinks a file of the dashboard: scripts, styles,
+// pages, and SVG. Pictures in other formats and WOFF2 fonts are compressed already.
+func compressible(name string) bool {
+	switch path.Ext(name) {
+	case ".js", ".css", ".html", ".svg", ".json", ".map", ".txt":
+		return true
+	}
+	return false
+}
+
+// gzipFile returns a file of the dashboard compressed with gzip. It compresses each
+// file once, since the files do not change while deneb runs.
+func (s *Server) gzipFile(name string) ([]byte, error) {
+	if kept, found := s.gzipped.Load(name); found {
+		return kept.([]byte), nil
+	}
+	data, err := fs.ReadFile(s.ui, name)
+	if err != nil {
+		return nil, err
+	}
+	var buffer bytes.Buffer
+	writer, err := gzip.NewWriterLevel(&buffer, gzip.BestCompression)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := writer.Write(data); err != nil {
+		return nil, err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	s.gzipped.Store(name, buffer.Bytes())
+	return buffer.Bytes(), nil
+}
+
+// acceptsGzip tells whether the browser takes answers compressed with gzip, by its
+// Accept-Encoding header, where gzip;q=0 refuses them.
+func acceptsGzip(r *http.Request) bool {
+	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+		coding, params, _ := strings.Cut(part, ";")
+		if !strings.EqualFold(strings.TrimSpace(coding), "gzip") {
+			continue
+		}
+		for _, param := range strings.Split(params, ";") {
+			name, value, _ := strings.Cut(strings.TrimSpace(param), "=")
+			if strings.EqualFold(name, "q") {
+				if q, err := strconv.ParseFloat(value, 64); err == nil && q == 0 {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // limiter allows a number of attempts per client within a window, against password guessing.

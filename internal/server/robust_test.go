@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"net/http"
@@ -96,5 +97,30 @@ func TestWebhookAddresses(t *testing.T) {
 	}
 	if r := h.dashboard("POST", "/v1/webhooks", map[string]string{"url": "http://10.0.0.5/hooks/deneb"}); r.status != http.StatusCreated {
 		t.Errorf("a private address: %d %s", r.status, r.body)
+	}
+}
+
+// The files of the dashboard and its pages go compressed to a browser that takes gzip.
+func TestCompressedFiles(t *testing.T) {
+	h := newHarness(t, nil)
+	r := h.do("GET", "/assets/app.js", nil, "Accept-Encoding", "br, gzip")
+	if r.status != http.StatusOK || r.header.Get("Content-Encoding") != "gzip" || !strings.Contains(r.header.Get("Vary"), "Accept-Encoding") ||
+		r.header.Get("Cache-Control") != "public, max-age=31536000, immutable" || !strings.Contains(r.header.Get("Content-Type"), "javascript") {
+		t.Fatalf("asset: %d %v", r.status, r.header)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(r.body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain, _ := io.ReadAll(reader); string(plain) != "console.log(1)" {
+		t.Errorf("asset after gzip: %q", plain)
+	}
+	for _, accept := range []string{"identity", "gzip;q=0"} {
+		if r := h.do("GET", "/assets/app.js", nil, "Accept-Encoding", accept); r.header.Get("Content-Encoding") != "" || string(r.body) != "console.log(1)" {
+			t.Errorf("Accept-Encoding %s: %v %q", accept, r.header, r.body)
+		}
+	}
+	if r := h.do("GET", "/", nil, "Accept-Encoding", "gzip"); r.header.Get("Content-Encoding") != "gzip" || r.header.Get("X-Frame-Options") != "DENY" {
+		t.Errorf("the dashboard page: %v", r.header)
 	}
 }
