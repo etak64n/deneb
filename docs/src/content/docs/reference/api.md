@@ -25,6 +25,7 @@ The upload URLs and the playback URLs carry tokens of their own, so they need no
 - 400 is input that deneb refuses, 401 a missing or wrong key, and 404 a video or webhook that does not exist.
 - 409 is a conflict, such as a second upload for a video. 413 is a body larger than 1 MB.
 - 403 answers a key that tries to manage keys. Only the dashboard manages keys.
+- 507 answers an upload that the free disk of deneb cannot take, since deneb keeps about 1 GB free for its database.
 
 ## Videos
 
@@ -33,6 +34,7 @@ The upload URLs and the playback URLs carry tokens of their own, so they need no
 - `GET /v1/videos/{id}` returns one `video`.
 - `PATCH /v1/videos/{id}` changes the `title`, `permanent_urls`, or both, and returns the `video`.
 - `DELETE /v1/videos/{id}` deletes a video and answers 204. deneb stops the work on the video and removes its files a moment later.
+- `POST /v1/videos/{id}/retry` queues again a video whose encoding failed, from its file, or the captions of a ready video that failed, and returns the `video`. It answers 409 when neither failed, or when the file of the video is gone, as a week after the failure.
 
 ## Uploads
 
@@ -41,6 +43,8 @@ The `upload` in the answer of `POST /v1/videos` holds two ways to send the file 
 - `upload.url` takes the whole file in one PUT, and answers with the video, now queued.
 - `upload.tus.endpoint` takes an upload of tus 1.0, with the `video_id` and the `token` of `upload.tus.metadata` in its Upload-Metadata header.
 - Every request about the upload of a video needs its token, which works until `upload.expires_at`, 24 hours after the video was created.
+- One upload of a video runs at a time. A second PUT while one sends its file gets 409, and a PUT stops a tus upload of the video that has not finished.
+- A finished upload is the file that deneb encodes, which a DELETE of tus cannot remove. Deleting the video removes it.
 - The upload URLs accept requests from any origin, so a browser can send the file itself.
 
 The [Upload videos](/deneb/guides/uploads/) page shows both ways with curl, and from a browser.

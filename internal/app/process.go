@@ -26,14 +26,32 @@ type permanentError struct{ err error }
 func (e permanentError) Error() string { return e.err.Error() }
 func (e permanentError) Unwrap() error { return e.err }
 
+// The limits of the programs of an encoding. ffprobe and the pictures take seconds.
+// The stream takes as long as the video needs, so ffmpeg stops only when it reports no
+// progress for stallTimeout, as when it hangs on a broken file.
+const (
+	probeTimeout   = 2 * time.Minute
+	pictureTimeout = 10 * time.Minute
+	stallTimeout   = 10 * time.Minute
+)
+
+// ErrSourceGone says that neither the upload of a video nor its stored source is
+// there anymore, so no attempt can encode it.
+var ErrSourceGone = errors.New("the file of the video is gone; create the video again and upload its file")
+
 // transcode turns the source of a video into its HLS stream, poster, and storyboard.
 // runJob decides what a failure means for the video.
 func (a *App) transcode(ctx context.Context, id string) error {
-	if _, err := a.store.Video(ctx, id); err != nil {
+	video, err := a.store.Video(ctx, id)
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil // The video was deleted while it waited.
 		}
 		return err
+	}
+	if video.Status == store.VideoReady {
+		// The encoding finished before, and only the record of its job did not.
+		return nil
 	}
 	if err := a.store.StartVideo(ctx, id, a.now()); err != nil {
 		return err
@@ -51,6 +69,9 @@ func (a *App) encode(ctx context.Context, id string) error {
 	upload := a.UploadPath(id)
 	source := upload
 	if _, err := os.Stat(upload); err != nil {
+		if stored, err := a.storage.Exists(ctx, sourceKey(id)); err == nil && !stored {
+			return permanentError{ErrSourceGone}
+		}
 		stored, cleanup, err := a.storage.LocalFile(ctx, sourceKey(id), filepath.Join(work, "source"))
 		if err != nil {
 			return fmt.Errorf("read the source: %w", err)
@@ -58,15 +79,28 @@ func (a *App) encode(ctx context.Context, id string) error {
 		defer cleanup()
 		source = stored
 	}
-	probe, err := media.ProbeFile(ctx, a.cfg.FFprobePath, source)
+	probeCtx, cancelProbe := context.WithTimeout(ctx, probeTimeout)
+	probe, err := media.ProbeFile(probeCtx, a.cfg.FFprobePath, source)
+	cancelProbe()
 	if err != nil {
-		return permanentError{err}
+		if errors.Is(err, media.ErrNotAVideo) {
+			// Another attempt cannot fix the file. Any other failure of ffprobe, such
+			// as one that could not start, may pass.
+			return permanentError{err}
+		}
+		return err
 	}
 	rungs := media.Ladder(probe.Width, probe.Height)
+	if err := a.roomForEncoding(probe, rungs); err != nil {
+		return err
+	}
 
+	encodeCtx, watch := watchProgress(ctx, stallTimeout, "ffmpeg")
+	defer watch.stop()
 	// The database learns the progress at most every two seconds.
 	var lastReport time.Time
 	progress := func(fraction float64) {
+		watch.advance(fraction)
 		if time.Since(lastReport) < 2*time.Second {
 			return
 		}
@@ -76,16 +110,18 @@ func (a *App) encode(ctx context.Context, id string) error {
 		}
 	}
 	hlsDir := filepath.Join(work, "hls")
-	if err := media.EncodeHLS(ctx, media.EncodeOptions{
+	if err := media.EncodeHLS(encodeCtx, media.EncodeOptions{
 		FFmpeg: a.cfg.FFmpegPath, Source: source, Probe: probe, Rungs: rungs, Threads: a.cfg.Threads, OutDir: hlsDir, Progress: progress,
 	}); err != nil {
-		return err
+		return watch.explain(err)
 	}
-	if err := media.Poster(ctx, a.cfg.FFmpegPath, source, probe, filepath.Join(work, "poster.jpg")); err != nil {
+	pictureCtx, cancelPictures := context.WithTimeout(ctx, pictureTimeout)
+	defer cancelPictures()
+	if err := media.Poster(pictureCtx, a.cfg.FFmpegPath, source, probe, filepath.Join(work, "poster.jpg")); err != nil {
 		return fmt.Errorf("make the poster: %w", err)
 	}
 	smallest := filepath.Join(hlsDir, media.VariantPlaylist(rungs[len(rungs)-1].Name))
-	if err := media.Storyboard(ctx, a.cfg.FFmpegPath, smallest, probe.Duration, work); err != nil {
+	if err := media.Storyboard(pictureCtx, a.cfg.FFmpegPath, smallest, probe.Duration, work); err != nil {
 		return fmt.Errorf("make the storyboard: %w", err)
 	}
 
@@ -122,15 +158,18 @@ func (a *App) encode(ctx context.Context, id string) error {
 		}
 		renditions = append(renditions, store.Rendition{Name: rung.Name, Width: rung.Width, Height: rung.Height, Bitrate: bitrate})
 	}
+	// The stream is stored. Its record and its event go through even when deneb begins
+	// to stop now, so that the next start does not encode the video again.
+	done := context.WithoutCancel(ctx)
 	captions := a.cfg.Captions.Enabled && probe.HasAudio
-	if err := a.store.ReadyVideo(ctx, id, probe.Duration, probe.Width, probe.Height, renditions, captions, a.now()); err != nil {
+	if err := a.store.ReadyVideo(done, id, probe.Duration, probe.Width, probe.Height, renditions, captions, a.now()); err != nil {
 		return err
 	}
 	if captions {
 		a.Wake()
 	}
 	a.log.Info("encoded a video", "video", id, "duration", probe.Duration, "renditions", len(rungs))
-	a.emit(ctx, EventVideoReady, id)
+	a.emit(done, EventVideoReady, id)
 	return nil
 }
 
@@ -149,7 +188,20 @@ func (a *App) captions(ctx context.Context, id string) error {
 	if err := a.store.SetCaptions(ctx, id, store.CaptionsProcessing, "", a.now()); err != nil {
 		return err
 	}
-	return a.transcribe(ctx, id)
+	// whisper.cpp reports no progress that deneb reads, so a transcription stops only
+	// after ten times the length of the video, and at least an hour, which only one
+	// that hangs takes.
+	limit := max(time.Hour, time.Duration(video.Duration*10*float64(time.Second)))
+	ctx, cancel := context.WithTimeoutCause(ctx, limit,
+		fmt.Errorf("whisper.cpp ran for %.0f minutes, ten times the length of the video or at least an hour, so deneb stopped it", limit.Minutes()))
+	defer cancel()
+	err = a.transcribe(ctx, id)
+	if errors.Is(err, context.DeadlineExceeded) {
+		if cause := context.Cause(ctx); cause != nil {
+			return cause
+		}
+	}
+	return err
 }
 
 func (a *App) transcribe(ctx context.Context, id string) error {
@@ -175,13 +227,16 @@ func (a *App) transcribe(ctx context.Context, id string) error {
 	if err := a.storage.PutFile(ctx, videoPrefix(id)+"captions.vtt", vtt); err != nil {
 		return err
 	}
-	if err := a.store.SetCaptions(ctx, id, store.CaptionsReady, language, a.now()); err != nil {
+	// The captions are stored. Their record and event go through even when deneb
+	// begins to stop now.
+	done := context.WithoutCancel(ctx)
+	if err := a.store.SetCaptions(done, id, store.CaptionsReady, language, a.now()); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil
 		}
 		return err
 	}
 	a.log.Info("wrote the captions of a video", "video", id, "language", language)
-	a.emit(ctx, EventVideoCaptionsReady, id)
+	a.emit(done, EventVideoCaptionsReady, id)
 	return nil
 }

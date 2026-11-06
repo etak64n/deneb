@@ -187,6 +187,19 @@ func (s *Server) updateVideo(w http.ResponseWriter, r *http.Request, _ caller) {
 	s.getVideo(w, r, caller{})
 }
 
+func (s *Server) retryVideo(w http.ResponseWriter, r *http.Request, _ caller) {
+	video, err := s.app.RetryVideo(r.Context(), r.PathValue("id"))
+	if errors.Is(err, app.ErrNothingToRetry) || errors.Is(err, app.ErrSourceGone) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"video": s.app.View(video, s.baseURL(r))})
+}
+
 func (s *Server) deleteVideo(w http.ResponseWriter, r *http.Request, _ caller) {
 	if err := s.app.DeleteVideo(r.Context(), r.PathValue("id")); err != nil {
 		s.fail(w, err)

@@ -21,6 +21,7 @@ DENEB_WORKERS=1
 DENEB_THREADS=0
 DENEB_MAX_UPLOAD_GB=50
 DENEB_PLAYBACK_TTL_HOURS=24
+DENEB_WEBHOOK_ALLOW_NETWORKS=
 DENEB_CAPTIONS=false
 DENEB_CAPTIONS_MODEL=base
 DENEB_CAPTIONS_LANGUAGE=auto
@@ -72,6 +73,9 @@ A setting of true or false also takes 1 or 0, yes or no, and on or off.
 - `DENEB_PLAYBACK_TTL_HOURS`
   - How long playback URLs last at least, in hours
   - 24 by default
+- `DENEB_WEBHOOK_ALLOW_NETWORKS`
+  - The private and local networks that webhooks may reach, separated by commas, such as `172.16.0.0/12` or `10.0.0.5`
+  - Empty by default, which keeps webhooks to addresses on the internet, so that a key of the API cannot reach the network of deneb through them
 - `DENEB_CAPTIONS`
   - true writes captions for every video with audio
   - false by default

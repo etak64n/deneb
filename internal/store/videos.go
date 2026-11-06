@@ -165,7 +165,40 @@ func (s *Store) QueueVideo(ctx context.Context, id string, sourceSize int64, now
 	return tx.Commit()
 }
 
-// StartVideo marks a video as processing.
+// RetryVideo queues again, from its start, the encoding of a video that failed.
+func (s *Store) RetryVideo(ctx context.Context, id string, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := expectRow(tx.ExecContext(ctx, `UPDATE videos SET status = ?, error = '', progress = 0, updated_at = ? WHERE id = ? AND status = ?`,
+		VideoQueued, millis(now), id, VideoFailed)); err != nil {
+		return err
+	}
+	if err := enqueue(ctx, tx, JobTranscode, id, now); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// RetryCaptions queues again the captions of a ready video, which failed.
+func (s *Store) RetryCaptions(ctx context.Context, id string, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := expectRow(tx.ExecContext(ctx, `UPDATE videos SET captions_status = ?, updated_at = ? WHERE id = ? AND status = ? AND captions_status = ?`,
+		CaptionsQueued, millis(now), id, VideoReady, CaptionsFailed)); err != nil {
+		return err
+	}
+	if err := enqueue(ctx, tx, JobCaptions, id, now); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // RequeueVideo puts a video whose encoding failed for a reason that may pass back in
 // the queue, with the reason, until its job runs again.
 func (s *Store) RequeueVideo(ctx context.Context, id, reason string, now time.Time) error {
@@ -173,6 +206,7 @@ func (s *Store) RequeueVideo(ctx context.Context, id, reason string, now time.Ti
 		VideoQueued, reason, millis(now), id))
 }
 
+// StartVideo marks a video as processing.
 func (s *Store) StartVideo(ctx context.Context, id string, now time.Time) error {
 	return expectRow(s.db.ExecContext(ctx, `UPDATE videos SET status = ?, progress = 0, error = '', updated_at = ? WHERE id = ?`,
 		VideoProcessing, millis(now), id))

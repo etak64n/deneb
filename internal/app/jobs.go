@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/etak64n/deneb/internal/media"
 	"github.com/etak64n/deneb/internal/store"
 )
 
@@ -26,8 +27,16 @@ import (
 var webhookRetries = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour}
 
 // mediaRetries are the waits before each new attempt of an encoding or captions job
-// that failed for a reason that may pass, such as a bucket that did not answer.
-var mediaRetries = []time.Duration{time.Minute, 10 * time.Minute}
+// that failed for a reason that may pass, such as a bucket that did not answer: about
+// seven hours in all, which outlasts most outages.
+var mediaRetries = []time.Duration{time.Minute, 10 * time.Minute, time.Hour, 6 * time.Hour}
+
+// roomWait is how long an encoding waits for free disk before it looks again.
+const roomWait = 5 * time.Minute
+
+// errStoppedTooOften is the failure of a job that deneb stopped in the middle of, as
+// by crashing, more times than it retries a failure.
+var errStoppedTooOften = errors.New("deneb stopped while it worked on this job more times than it retries a failure")
 
 // lightWorkers deliver webhooks and remove files, so that a slow endpoint does not
 // hold up the others.
@@ -123,6 +132,14 @@ func (a *App) runJob(ctx context.Context, job *store.Job) {
 		a.purgeJob(ctx, job)
 		return
 	}
+	finish := context.WithoutCancel(ctx)
+	// A crash or a kill in the middle of a job counts as an attempt, so that a job that
+	// brings deneb down every time fails in the end rather than run forever.
+	if job.Attempts > len(mediaRetries)+1 {
+		a.log.Error("a job failed", "kind", job.Kind, "video", job.Ref, "attempt", job.Attempts, "error", errStoppedTooOften)
+		a.failMedia(finish, job, errStoppedTooOften)
+		return
+	}
 	// DeleteVideo stops the job through this context.
 	jobCtx, cancel := context.WithCancel(ctx)
 	a.runningMu.Lock()
@@ -141,11 +158,6 @@ func (a *App) runJob(ctx context.Context, job *store.Job) {
 	delete(a.running, job.ID)
 	a.runningMu.Unlock()
 	cancel()
-	if ctx.Err() != nil {
-		// deneb is stopping. The job stays running and runs again at the next start.
-		return
-	}
-	finish := context.WithoutCancel(ctx)
 	if _, lookErr := a.store.Video(finish, job.Ref); errors.Is(lookErr, store.ErrNotFound) {
 		// The video was deleted while the job ran. What the job stored after the files
 		// of the video were removed goes in another removal.
@@ -156,8 +168,22 @@ func (a *App) runJob(ctx context.Context, job *store.Job) {
 		a.finishJob(finish, job)
 		return
 	}
+	// A job that ended well is done, even when deneb began to stop meanwhile, so that
+	// the next start does not do it again.
 	if err == nil {
 		a.finishJob(finish, job)
+		return
+	}
+	if ctx.Err() != nil {
+		// deneb is stopping, which stopped the job. It runs again at the next start, and
+		// the stop does not count as an attempt.
+		a.requeueStopped(finish, job)
+		return
+	}
+	var room roomError
+	if errors.As(err, &room) {
+		a.log.Warn("an encoding waits for free disk", "video", job.Ref, "needBytes", room.need, "freeBytes", room.free)
+		a.waitForRoom(finish, job, err)
 		return
 	}
 	var permanent permanentError
@@ -173,6 +199,25 @@ func (a *App) runJob(ctx context.Context, job *store.Job) {
 func (a *App) finishJob(ctx context.Context, job *store.Job) {
 	if err := a.store.FinishJob(ctx, job.ID, a.now()); err != nil {
 		a.log.Error("record a finished job", "job", job.ID, "error", err)
+	}
+}
+
+// requeueStopped puts back in the queue a job that a stop of deneb interrupted, with
+// its video, without counting the attempt.
+func (a *App) requeueStopped(ctx context.Context, job *store.Job) {
+	if err := a.store.RequeueJob(ctx, *job, a.now()); err != nil {
+		a.log.Error("queue again a job that a stop interrupted", "job", job.ID, "error", err)
+	}
+}
+
+// waitForRoom puts an encoding back in the queue to look for free disk again later,
+// without counting the attempt. The video tells why it waits.
+func (a *App) waitForRoom(ctx context.Context, job *store.Job, cause error) {
+	if err := a.store.RequeueVideo(ctx, job.Ref, cause.Error(), a.now()); err != nil && !errors.Is(err, store.ErrNotFound) {
+		a.log.Error("queue a video again", "video", job.Ref, "error", err)
+	}
+	if err := a.store.PostponeJob(ctx, job.ID, cause.Error(), a.now().Add(roomWait), a.now()); err != nil {
+		a.log.Error("record a job that waits", "job", job.ID, "error", err)
 	}
 }
 
@@ -199,8 +244,12 @@ func (a *App) failMedia(ctx context.Context, job *store.Job, cause error) {
 		if err = a.store.FailVideo(ctx, job.Ref, cause.Error(), a.now()); err == nil {
 			a.emit(ctx, EventVideoFailed, job.Ref)
 		}
-		// Its file, if it is still where it arrived, is of no more use.
-		a.RemoveUpload(job.Ref)
+		// A file that is not a video is of no use. Any other stays where it arrived, so
+		// that POST /v1/videos/{id}/retry can encode it, until housekeep removes it a week
+		// after it last changed.
+		if errors.Is(cause, media.ErrNotAVideo) {
+			a.RemoveUpload(job.Ref)
+		}
 	} else {
 		err = a.store.SetCaptions(ctx, job.Ref, store.CaptionsFailed, "", a.now())
 	}
@@ -218,10 +267,11 @@ func (a *App) purgeJob(ctx context.Context, job *store.Job) {
 	a.RemoveUpload(job.Ref)
 	os.RemoveAll(a.workDir(job.Ref))
 	err := a.storage.DeletePrefix(ctx, videoPrefix(job.Ref))
-	if ctx.Err() != nil {
-		return // deneb is stopping; the removal runs again at the next start.
-	}
 	finish := context.WithoutCancel(ctx)
+	if ctx.Err() != nil {
+		a.requeueStopped(finish, job) // The removal runs again at the next start.
+		return
+	}
 	if err == nil {
 		a.finishJob(finish, job)
 		return
@@ -249,21 +299,25 @@ func (a *App) deliverJob(ctx context.Context, job *store.Job) {
 	}
 	status, err := a.post(ctx, hook, delivery)
 	if ctx.Err() != nil {
-		return // deneb is stopping; the delivery runs again at the next start.
+		a.requeueStopped(finish, job) // The delivery runs again at the next start.
+		return
 	}
 	if err == nil {
 		a.store.RecordDelivery(finish, delivery.ID, store.DeliveryDelivered, status, "", a.now())
 		a.store.FinishJob(finish, job.ID, a.now())
 		return
 	}
+	// The deliveries keep why in words of deneb, and the log keeps the error itself.
+	reason := deliveryError(err)
 	if job.Attempts > len(webhookRetries) {
-		a.log.Warn("gave up a webhook delivery", "webhook", hook.ID, "event", delivery.Event, "error", err)
-		a.store.RecordDelivery(finish, delivery.ID, store.DeliveryFailed, status, err.Error(), a.now())
-		a.store.FailJob(finish, job.ID, err.Error(), a.now())
+		a.log.Error("gave up a webhook delivery", "webhook", hook.ID, "event", delivery.Event, "attempt", job.Attempts, "error", withoutURL(err))
+		a.store.RecordDelivery(finish, delivery.ID, store.DeliveryFailed, status, reason, a.now())
+		a.store.FailJob(finish, job.ID, reason, a.now())
 		return
 	}
-	a.store.RecordDelivery(finish, delivery.ID, store.DeliveryPending, status, err.Error(), a.now())
-	a.store.RetryJob(finish, job.ID, err.Error(), a.now().Add(webhookRetries[job.Attempts-1]), a.now())
+	a.log.Warn("a webhook delivery failed and runs again", "webhook", hook.ID, "event", delivery.Event, "attempt", job.Attempts, "error", withoutURL(err))
+	a.store.RecordDelivery(finish, delivery.ID, store.DeliveryPending, status, reason, a.now())
+	a.store.RetryJob(finish, job.ID, reason, a.now().Add(webhookRetries[job.Attempts-1]), a.now())
 }
 
 // post sends a delivery. The signature lets the receiver check that deneb sent it:
@@ -290,7 +344,7 @@ func (a *App) post(ctx context.Context, hook store.Webhook, delivery store.Deliv
 	defer response.Body.Close()
 	io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
 	if response.StatusCode < 200 || response.StatusCode > 299 {
-		return response.StatusCode, fmt.Errorf("the webhook answered %s", response.Status)
+		return response.StatusCode, statusError{code: response.StatusCode}
 	}
 	return response.StatusCode, nil
 }

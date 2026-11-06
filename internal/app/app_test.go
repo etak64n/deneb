@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,7 +25,15 @@ import (
 	"github.com/etak64n/deneb/internal/store"
 )
 
+// newApp returns an app whose webhooks may reach the receivers of the tests, which
+// listen on the loopback.
 func newApp(t *testing.T) *App {
+	t.Helper()
+	return newAppWith(t, nil)
+}
+
+// newAppWith returns an app with the configuration of newApp, which adjust changes.
+func newAppWith(t *testing.T, adjust func(*config.Config)) *App {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -39,7 +48,11 @@ func newApp(t *testing.T) *App {
 	}
 	cfg := config.Config{
 		DataDir: dir, Workers: 1, Threads: 1, PlaybackTTL: 24 * time.Hour,
-		Captions: config.CaptionsConfig{Model: "base", Language: "auto"},
+		WebhookAllowNetworks: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")},
+		Captions:             config.CaptionsConfig{Model: "base", Language: "auto"},
+	}
+	if adjust != nil {
+		adjust(&cfg)
 	}
 	a, err := New(ctx, cfg, db, files, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {

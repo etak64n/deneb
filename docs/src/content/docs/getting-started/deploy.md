@@ -18,6 +18,9 @@ services:
     # 0.3 follows the fixes of 0.3; latest follows every release.
     image: ghcr.io/etak64n/deneb:0.3
     restart: unless-stopped
+    # deneb takes up to 20 seconds to finish the requests that run and to put its jobs
+    # back in the queue. Docker would kill it after 10.
+    stop_grace_period: 30s
     ports:
       # Only the proxy on this host reaches deneb, so the X-Forwarded-For it sets can be trusted.
       - "127.0.0.1:8080:8080"

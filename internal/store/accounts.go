@@ -133,11 +133,12 @@ func (s *Store) UseAPIKey(ctx context.Context, secretHash string, now time.Time)
 	}
 	key.CreatedAt = fromMillis(created)
 	key.LastUsedAt = nullableTime(used)
+	// The time of last use is a courtesy: a write that fails, as on a full disk, keeps
+	// the old time rather than refuse a key that is right.
 	if !used.Valid || now.Sub(fromMillis(used.Int64)) >= time.Minute {
-		if _, err := s.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = ? WHERE id = ?`, millis(now), key.ID); err != nil {
-			return APIKey{}, err
+		if _, err := s.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = ? WHERE id = ?`, millis(now), key.ID); err == nil {
+			key.LastUsedAt = &now
 		}
-		key.LastUsedAt = &now
 	}
 	return key, nil
 }

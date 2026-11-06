@@ -6,6 +6,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"runtime"
@@ -49,6 +50,9 @@ type Config struct {
 	MaxUploadSize int64
 	// PlaybackTTL is how long the signed playback URLs that the API returns stay valid.
 	PlaybackTTL time.Duration
+	// WebhookAllowNetworks are the private and local networks that webhooks may reach,
+	// such as that of a receiver on the same host. Webhooks reach no other.
+	WebhookAllowNetworks []netip.Prefix
 
 	Captions CaptionsConfig
 
@@ -152,6 +156,24 @@ func load(getenv func(string) string) (Config, error) {
 		},
 		FFmpegPath:  env("DENEB_FFMPEG_PATH", "ffmpeg"),
 		FFprobePath: env("DENEB_FFPROBE_PATH", "ffprobe"),
+	}
+
+	for _, part := range strings.Split(env("DENEB_WEBHOOK_ALLOW_NETWORKS", ""), ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		// A bare address stands for itself.
+		prefix, err := netip.ParsePrefix(part)
+		if err != nil {
+			addr, addrErr := netip.ParseAddr(part)
+			if addrErr != nil {
+				problems = append(problems, fmt.Sprintf("DENEB_WEBHOOK_ALLOW_NETWORKS lists networks such as 172.16.0.0/12 or 10.0.0.5, separated by commas, and %q is not one", part))
+				continue
+			}
+			prefix = netip.PrefixFrom(addr, addr.BitLen())
+		}
+		cfg.WebhookAllowNetworks = append(cfg.WebhookAllowNetworks, prefix.Masked())
 	}
 
 	// A short secret could be found by trying every value against one playback URL.

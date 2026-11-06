@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"net/netip"
+	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -221,11 +223,28 @@ func (a *App) UseAPIKey(ctx context.Context, secret string) (store.APIKey, error
 	return a.store.UseAPIKey(ctx, HashSecret(secret), a.now())
 }
 
-// CreateWebhook adds an endpoint for the events, with a new secret that signs them.
-func (a *App) CreateWebhook(ctx context.Context, url string) (store.Webhook, error) {
-	url = strings.TrimSpace(url)
-	if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
-		return store.Webhook{}, errors.New("the URL must start with https:// or http://")
+// maxWebhookURL is the longest URL of a webhook.
+const maxWebhookURL = 2048
+
+// CreateWebhook adds an endpoint for the events, with a new secret that signs them. It
+// refuses an endpoint that webhooks may not reach when the URL shows its address. A
+// name that resolves to such an address fails at each delivery instead.
+func (a *App) CreateWebhook(ctx context.Context, endpoint string) (store.Webhook, error) {
+	endpoint = strings.TrimSpace(endpoint)
+	parsed, err := url.Parse(endpoint)
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
+		return store.Webhook{}, errors.New("the URL must start with https:// or http://, and name a host")
 	}
-	return a.store.CreateWebhook(ctx, NewID("wh"), url, "whsec_"+randomString(24), a.now())
+	if len(endpoint) > maxWebhookURL {
+		return store.Webhook{}, fmt.Errorf("the URL can be at most %d characters", maxWebhookURL)
+	}
+	host := parsed.Hostname()
+	addr, err := netip.ParseAddr(host)
+	if err != nil && (host == "localhost" || strings.HasSuffix(host, ".localhost")) {
+		addr, err = netip.MustParseAddr("127.0.0.1"), nil
+	}
+	if err == nil && !webhookAllowed(addr, a.cfg.WebhookAllowNetworks) {
+		return store.Webhook{}, fmt.Errorf("the URL points to %s, in a private or local network; DENEB_WEBHOOK_ALLOW_NETWORKS lists the networks that webhooks may reach", host)
+	}
+	return a.store.CreateWebhook(ctx, NewID("wh"), endpoint, "whsec_"+randomString(24), a.now())
 }

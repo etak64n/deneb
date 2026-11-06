@@ -89,15 +89,51 @@ func (s *Store) RetryJob(ctx context.Context, id int64, reason string, runAfter,
 	return err
 }
 
-// RequeueRunningJobs queues again the jobs that were running when deneb stopped,
-// and puts their videos back in the queue. A stop does not count as an attempt.
+// PostponeJob queues a job again to run after a time, without counting the attempt,
+// as when it waits for free disk.
+func (s *Store) PostponeJob(ctx context.Context, id int64, reason string, runAfter, now time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE jobs SET status = ?, attempts = max(attempts - 1, 0), error = ?, run_after = ?, updated_at = ? WHERE id = ?`,
+		JobQueued, reason, millis(runAfter), millis(now), id)
+	return err
+}
+
+// RequeueJob queues again a job that a stop of deneb interrupted, and its video. It
+// takes back the attempt, since the stop was not the fault of the job.
+func (s *Store) RequeueJob(ctx context.Context, job Job, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status = ?, attempts = max(attempts - 1, 0), updated_at = ? WHERE id = ? AND status = ?`,
+		JobQueued, millis(now), job.ID, JobRunning); err != nil {
+		return err
+	}
+	switch job.Kind {
+	case JobTranscode:
+		_, err = tx.ExecContext(ctx, `UPDATE videos SET status = ?, progress = 0, updated_at = ? WHERE id = ? AND status = ?`,
+			VideoQueued, millis(now), job.Ref, VideoProcessing)
+	case JobCaptions:
+		_, err = tx.ExecContext(ctx, `UPDATE videos SET captions_status = ?, updated_at = ? WHERE id = ? AND captions_status = ?`,
+			CaptionsQueued, millis(now), job.Ref, CaptionsProcessing)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// RequeueRunningJobs queues again the jobs that were still running when deneb started,
+// which a crash or a kill stopped without deneb seeing it, and puts their videos back
+// in the queue. Such a stop counts as an attempt, so that a job that brings deneb down
+// every time fails in the end. A stop that deneb sees queues its jobs itself.
 func (s *Store) RequeueRunningJobs(ctx context.Context, now time.Time) (int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE jobs SET status = ?, attempts = max(attempts - 1, 0), updated_at = ? WHERE status = ?`,
+	result, err := tx.ExecContext(ctx, `UPDATE jobs SET status = ?, updated_at = ? WHERE status = ?`,
 		JobQueued, millis(now), JobRunning)
 	if err != nil {
 		return 0, err

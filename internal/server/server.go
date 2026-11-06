@@ -17,21 +17,25 @@ import (
 
 	"github.com/etak64n/deneb/internal/app"
 	"github.com/tus/tusd/v2/pkg/handler"
+	"github.com/tus/tusd/v2/pkg/memorylocker"
 )
 
 // Server is the HTTP side of deneb.
 type Server struct {
-	app     *app.App
-	log     *slog.Logger
-	ui      fs.FS
-	tus     *handler.Handler
+	app *app.App
+	log *slog.Logger
+	ui  fs.FS
+	tus *handler.Handler
+	// locker lets one request at a time write the upload of a video: each request of
+	// tus takes it, and so does a PUT.
+	locker  *memorylocker.MemoryLocker
 	mux     *http.ServeMux
 	limiter *limiter
 }
 
 // New returns the server. ui holds the built dashboard, with index.html and embed.html at its root.
 func New(a *app.App, ui fs.FS, log *slog.Logger) (*Server, error) {
-	s := &Server{app: a, log: log, ui: ui, mux: http.NewServeMux(), limiter: newLimiter(10, 10*time.Minute)}
+	s := &Server{app: a, log: log, ui: ui, locker: memorylocker.New(), mux: http.NewServeMux(), limiter: newLimiter(10, 10*time.Minute)}
 	tus, err := s.newTus()
 	if err != nil {
 		return nil, err
@@ -69,6 +73,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/videos/{id}", s.api(s.getVideo, false))
 	s.mux.HandleFunc("PATCH /v1/videos/{id}", s.api(s.updateVideo, false))
 	s.mux.HandleFunc("DELETE /v1/videos/{id}", s.api(s.deleteVideo, false))
+	s.mux.HandleFunc("POST /v1/videos/{id}/retry", s.api(s.retryVideo, false))
 
 	s.mux.HandleFunc("GET /v1/webhooks", s.api(s.listWebhooks, false))
 	s.mux.HandleFunc("POST /v1/webhooks", s.api(s.createWebhook, false))

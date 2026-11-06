@@ -159,7 +159,8 @@ func TestRetryAndRequeue(t *testing.T) {
 	job, _ := s.ClaimJob(ctx, []string{JobTranscode}, start)
 	s.StartVideo(ctx, "vid_a", start)
 
-	// deneb stopped while the job ran: the next start queues it again.
+	// deneb stopped while the job ran, without seeing it, as when it crashed: the next
+	// start queues the job again, and the stop counts as an attempt.
 	count, err := s.RequeueRunningJobs(ctx, start)
 	if err != nil || count != 1 {
 		t.Fatalf("requeued %d, %v", count, err)
@@ -167,10 +168,34 @@ func TestRetryAndRequeue(t *testing.T) {
 	if video, _ := s.Video(ctx, "vid_a"); video.Status != VideoQueued {
 		t.Errorf("status %q", video.Status)
 	}
-	// The stop does not count as an attempt.
 	again, _ := s.ClaimJob(ctx, []string{JobTranscode}, start)
-	if again == nil || again.ID != job.ID || again.Attempts != 1 {
+	if again == nil || again.ID != job.ID || again.Attempts != 2 {
 		t.Fatalf("job %+v", again)
+	}
+
+	// A stop that deneb sees queues the job itself, and takes the attempt back.
+	s.StartVideo(ctx, "vid_a", start)
+	if err := s.RequeueJob(ctx, *again, start); err != nil {
+		t.Fatal(err)
+	}
+	if video, _ := s.Video(ctx, "vid_a"); video.Status != VideoQueued {
+		t.Errorf("status after a stop %q", video.Status)
+	}
+	again, _ = s.ClaimJob(ctx, []string{JobTranscode}, start)
+	if again == nil || again.Attempts != 2 {
+		t.Fatalf("job after a stop %+v", again)
+	}
+
+	// A job that waits for free disk does not count the attempt either.
+	if err := s.PostponeJob(ctx, again.ID, "waiting for free disk", start.Add(5*time.Minute), start); err != nil {
+		t.Fatal(err)
+	}
+	if early, _ := s.ClaimJob(ctx, []string{JobTranscode}, start); early != nil {
+		t.Errorf("a postponed job ran before its time: %+v", early)
+	}
+	again, _ = s.ClaimJob(ctx, []string{JobTranscode}, start.Add(5*time.Minute))
+	if again == nil || again.Attempts != 2 {
+		t.Fatalf("job after it waited %+v", again)
 	}
 
 	if err := s.RetryJob(ctx, again.ID, "busy", start.Add(time.Minute), start); err != nil {
@@ -348,5 +373,38 @@ func TestVideoPermanentURLs(t *testing.T) {
 	}
 	if err := s.SetVideoPermanentURLs(ctx, "vid_missing", true, start); !errors.Is(err, ErrNotFound) {
 		t.Errorf("a missing video: %v", err)
+	}
+}
+
+func TestRetryVideoAndCaptions(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	s.CreateVideo(ctx, "vid_a", "", start)
+	if err := s.RetryVideo(ctx, "vid_a", start); !errors.Is(err, ErrNotFound) {
+		t.Errorf("retry of a video that has not failed: %v", err)
+	}
+	s.FailVideo(ctx, "vid_a", "the bucket did not answer", start)
+	if err := s.RetryVideo(ctx, "vid_a", start); err != nil {
+		t.Fatal(err)
+	}
+	if video, _ := s.Video(ctx, "vid_a"); video.Status != VideoQueued || video.Error != "" {
+		t.Errorf("video after a retry %+v", video)
+	}
+	if job, _ := s.ClaimJob(ctx, []string{JobTranscode}, start); job == nil || job.Ref != "vid_a" {
+		t.Errorf("the retry queued no encoding: %+v", job)
+	}
+
+	s.CreateVideo(ctx, "vid_b", "", start)
+	s.QueueVideo(ctx, "vid_b", 1, start)
+	s.ReadyVideo(ctx, "vid_b", 10, 1280, 720, nil, true, start)
+	if err := s.RetryCaptions(ctx, "vid_b", start); !errors.Is(err, ErrNotFound) {
+		t.Errorf("retry of captions that have not failed: %v", err)
+	}
+	s.SetCaptions(ctx, "vid_b", CaptionsFailed, "", start)
+	if err := s.RetryCaptions(ctx, "vid_b", start); err != nil {
+		t.Fatal(err)
+	}
+	if video, _ := s.Video(ctx, "vid_b"); video.CaptionsStatus != CaptionsQueued {
+		t.Errorf("captions after a retry %q", video.CaptionsStatus)
 	}
 }

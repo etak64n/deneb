@@ -43,8 +43,7 @@ type App struct {
 	log     *slog.Logger
 	now     func() time.Time
 
-	// client sends the webhooks. It does not follow redirects, which would turn a POST
-	// into a GET without its body.
+	// client sends the webhooks, to the addresses that newWebhookClient allows.
 	client *http.Client
 
 	wakeMu sync.Mutex
@@ -86,10 +85,8 @@ func New(ctx context.Context, cfg config.Config, db *store.Store, files storage.
 	}
 	a := &App{
 		cfg: cfg, store: db, storage: files, secret: []byte(secret), log: log,
-		now: func() time.Time { return time.Now().UTC() },
-		client: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		}},
+		now:     func() time.Time { return time.Now().UTC() },
+		client:  newWebhookClient(cfg.WebhookAllowNetworks),
 		running: map[int64]runningJob{},
 		hashing: make(chan struct{}, 2),
 	}

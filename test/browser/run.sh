@@ -64,8 +64,11 @@ ffmpeg -f lavfi -i "gradients=s=1280x720:r=30:d=8:speed=0.03:nb_colors=3:c0=0x1a
 
 echo "Start deneb"
 # CAPTIONS_MODEL picks another Whisper model than the small and fast tiny, such as base for the demo.
+# The receiver of the webhooks listens on the host, at a private address that deneb
+# sends webhooks to only when DENEB_WEBHOOK_ALLOW_NETWORKS lists it.
 docker run -d --name "$container" -p 8080:8080 --add-host=host.docker.internal:host-gateway \
-  -e DENEB_CAPTIONS=true -e DENEB_CAPTIONS_MODEL="${CAPTIONS_MODEL:-tiny}" "$image" >/dev/null
+  -e DENEB_CAPTIONS=true -e DENEB_CAPTIONS_MODEL="${CAPTIONS_MODEL:-tiny}" \
+  -e DENEB_WEBHOOK_ALLOW_NETWORKS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 "$image" >/dev/null
 for _ in $(seq 60); do
   curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break
   sleep 1

@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ErrNoAudio is returned for captions of a video without sound.
@@ -17,6 +19,19 @@ var ErrNoAudio = errors.New("the video has no sound track")
 
 // modelURL is where whisper.cpp publishes its models in the ggml format.
 const modelURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-%s.bin"
+
+// modelClient downloads the models. A server that does not answer within half a minute
+// fails the download, which runs again with its job.
+var modelClient = &http.Client{Transport: &http.Transport{
+	Proxy:                 http.ProxyFromEnvironment,
+	DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
+	TLSHandshakeTimeout:   30 * time.Second,
+	ResponseHeaderTimeout: 30 * time.Second,
+}}
+
+// modelIdle is how long a download may receive nothing before it stops. A model takes
+// minutes to arrive, so the download as a whole has no limit.
+const modelIdle = 2 * time.Minute
 
 // EnsureModel returns the path of a whisper.cpp model in dir, and downloads it
 // first if this machine does not have it yet.
@@ -28,11 +43,14 @@ func EnsureModel(ctx context.Context, dir, name string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
+	removeStaleParts(dir, name)
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf(modelURL, name), nil)
 	if err != nil {
 		return "", err
 	}
-	response, err := http.DefaultClient.Do(request)
+	response, err := modelClient.Do(request)
 	if err != nil {
 		return "", fmt.Errorf("download the whisper.cpp model %s: %w", name, err)
 	}
@@ -47,9 +65,23 @@ func EnsureModel(ctx context.Context, dir, name string) (string, error) {
 		return "", err
 	}
 	partial := file.Name()
-	if _, err := io.Copy(file, response.Body); err != nil {
+	idle := time.AfterFunc(modelIdle, func() {
+		cancel(fmt.Errorf("the download of the whisper.cpp model %s received nothing for %s", name, modelIdle))
+	})
+	defer idle.Stop()
+	body := readerFunc(func(p []byte) (int, error) {
+		n, err := response.Body.Read(p)
+		if n > 0 {
+			idle.Reset(modelIdle)
+		}
+		return n, err
+	})
+	if _, err := io.Copy(file, body); err != nil {
 		file.Close()
 		os.Remove(partial)
+		if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
+			return "", cause
+		}
 		return "", fmt.Errorf("download the whisper.cpp model %s: %w", name, err)
 	}
 	if err := file.Close(); err != nil {
@@ -57,6 +89,22 @@ func EnsureModel(ctx context.Context, dir, name string) (string, error) {
 		return "", err
 	}
 	return target, os.Rename(partial, target)
+}
+
+// readerFunc turns a function into an io.Reader.
+type readerFunc func(p []byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
+
+// removeStaleParts removes what downloads of a model left when deneb stopped in their
+// middle. A part that changed within the hour may be a download of another job.
+func removeStaleParts(dir, name string) {
+	parts, _ := filepath.Glob(filepath.Join(dir, "ggml-"+name+"-*.part"))
+	for _, part := range parts {
+		if info, err := os.Stat(part); err == nil && time.Since(info.ModTime()) > time.Hour {
+			os.Remove(part)
+		}
+	}
 }
 
 // CaptionsOptions describe one transcription.

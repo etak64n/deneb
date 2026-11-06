@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
@@ -122,6 +123,19 @@ func (s *S3) LocalFile(ctx context.Context, key, dir string) (string, func(), er
 		return "", nil, fmt.Errorf("download %s: %w", key, err)
 	}
 	return target, func() { os.Remove(target) }, nil
+}
+
+func (s *S3) Exists(ctx context.Context, key string) (bool, error) {
+	_, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)})
+	if err == nil {
+		return true, nil
+	}
+	// HEAD has no body, so services answer a missing object with a bare 404 rather than NoSuchKey.
+	var response *awshttp.ResponseError
+	if errors.As(err, &response) && response.HTTPStatusCode() == http.StatusNotFound {
+		return false, nil
+	}
+	return false, fmt.Errorf("look for %s: %w", key, err)
 }
 
 // maxReadFile is the largest object that ReadFile reads, far above any WebVTT file of deneb.

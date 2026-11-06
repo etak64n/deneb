@@ -29,6 +29,8 @@ type Storage interface {
 	ReadFile(ctx context.Context, key string) ([]byte, error)
 	// DeletePrefix removes every object whose key starts with the prefix.
 	DeletePrefix(ctx context.Context, prefix string) error
+	// Exists tells whether an object is stored under the key, without reading it.
+	Exists(ctx context.Context, key string) (bool, error)
 }
 
 // ContentType returns the media type of an object by the extension of its key.

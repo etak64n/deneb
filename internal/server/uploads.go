@@ -11,11 +11,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/etak64n/deneb/internal/store"
 	"github.com/tus/tusd/v2/pkg/filestore"
 	"github.com/tus/tusd/v2/pkg/handler"
-	"github.com/tus/tusd/v2/pkg/memorylocker"
 	expslog "golang.org/x/exp/slog"
 )
 
@@ -29,7 +29,7 @@ func (s *Server) newTus() (*handler.Handler, error) {
 	}
 	composer := handler.NewStoreComposer()
 	filestore.New(dir).UseIn(composer)
-	memorylocker.New().UseIn(composer)
+	s.locker.UseIn(composer)
 	return handler.NewHandler(handler.Config{
 		BasePath:                "/v1/uploads/",
 		StoreComposer:           composer,
@@ -60,6 +60,11 @@ func (s *Server) checkUpload(hook handler.HookEvent) (handler.HTTPResponse, hand
 	}
 	if video.Status != store.VideoWaiting {
 		return handler.HTTPResponse{}, handler.FileInfoChanges{}, handler.NewError("ERR_VIDEO_UPLOADED", "the video already has its file", http.StatusConflict)
+	}
+	if !hook.Upload.SizeIsDeferred {
+		if err := s.app.RoomForUpload(hook.Upload.Size); err != nil {
+			return handler.HTTPResponse{}, handler.FileInfoChanges{}, handler.NewError("ERR_DISK_FULL", err.Error(), http.StatusInsufficientStorage)
+		}
 	}
 	// A video has one upload, under its own ID: a token cannot start many, and the
 	// encoder finds the file by the video alone. An earlier upload that did not
@@ -129,6 +134,14 @@ func (s *Server) guardUploads(next http.Handler) http.Handler {
 			s.putUpload(w, r, id)
 			return
 		}
+		if r.Method == http.MethodDelete {
+			// A finished upload is the file that the encoder reads, which a tus client may
+			// not remove. Deleting the video removes it.
+			if video, err := s.app.Store().Video(r.Context(), id); err == nil && video.Status != store.VideoWaiting {
+				writeError(w, http.StatusConflict, "the upload of the video finished; delete the video instead")
+				return
+			}
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -177,6 +190,23 @@ func (t *tokenLocation) Unwrap() http.ResponseWriter { return t.ResponseWriter }
 // putUpload stores the whole file of a video from the body of one request, then
 // queues the video as a finished tus upload does.
 func (s *Server) putUpload(w http.ResponseWriter, r *http.Request, id string) {
+	// One upload of a video at a time. A second PUT would replace the file of the
+	// first, and then remove it. The lock is that of tus, so a PUT also asks a tus
+	// upload of the video that has not finished to stop, and takes its place.
+	lock, err := s.locker.NewLock(id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	lockCtx, cancelLock := context.WithTimeout(r.Context(), 2*time.Second)
+	err = lock.Lock(lockCtx, func() {})
+	cancelLock()
+	if err != nil {
+		writeError(w, http.StatusConflict, "another upload of this video is in progress")
+		return
+	}
+	defer lock.Unlock()
+
 	video, err := s.app.Store().Video(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "the video does not exist")
@@ -194,6 +224,11 @@ func (s *Server) putUpload(w http.ResponseWriter, r *http.Request, id string) {
 	tooLarge := fmt.Sprintf("the file is larger than the %d GB that DENEB_MAX_UPLOAD_GB allows", limit/1_000_000_000)
 	if r.ContentLength > limit {
 		writeError(w, http.StatusRequestEntityTooLarge, tooLarge)
+		return
+	}
+	// A request without a length is checked for the reserve alone.
+	if err := s.app.RoomForUpload(r.ContentLength); err != nil {
+		writeError(w, http.StatusInsufficientStorage, err.Error())
 		return
 	}
 	// An unfinished tus upload of the video gives way to this one.
@@ -230,8 +265,14 @@ func (s *Server) putUpload(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := context.WithoutCancel(r.Context())
 	if err := s.app.UploadFinished(ctx, id, size); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			s.app.RemoveUpload(id)
-			writeError(w, http.StatusConflict, "the video was deleted, or has its file already")
+			// The file goes only with its video. A video that has its file already keeps
+			// it, as a finished tus upload does.
+			if _, lookErr := s.app.Store().Video(ctx, id); errors.Is(lookErr, store.ErrNotFound) {
+				s.app.RemoveUpload(id)
+				writeError(w, http.StatusNotFound, "the video was deleted")
+				return
+			}
+			writeError(w, http.StatusConflict, "the video has its file already")
 			return
 		}
 		s.fail(w, err)

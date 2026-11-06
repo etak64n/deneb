@@ -117,3 +117,23 @@ func TestUnknownStorage(t *testing.T) {
 		t.Errorf("error %v", err)
 	}
 }
+
+func TestWebhookAllowNetworks(t *testing.T) {
+	if cfg, _ := loadFrom(nil); len(cfg.WebhookAllowNetworks) != 0 {
+		t.Errorf("networks by default %v", cfg.WebhookAllowNetworks)
+	}
+	cfg, err := loadFrom(map[string]string{"DENEB_WEBHOOK_ALLOW_NETWORKS": " 172.16.0.0/12, 10.0.0.5 ,fd00::/8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{}
+	for _, prefix := range cfg.WebhookAllowNetworks {
+		got = append(got, prefix.String())
+	}
+	if strings.Join(got, ",") != "172.16.0.0/12,10.0.0.5/32,fd00::/8" {
+		t.Errorf("networks %v", got)
+	}
+	if _, err := loadFrom(map[string]string{"DENEB_WEBHOOK_ALLOW_NETWORKS": "172.16.0.0/12,intranet"}); err == nil || !strings.Contains(err.Error(), "DENEB_WEBHOOK_ALLOW_NETWORKS") {
+		t.Errorf("a name in the list: %v", err)
+	}
+}

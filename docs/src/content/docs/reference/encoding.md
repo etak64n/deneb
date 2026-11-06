@@ -35,5 +35,11 @@ deneb skips each quality larger than the source, since a larger quality would co
 
 ## Failures
 
-An encoding that fails for a reason that may pass, such as a bucket that did not answer, runs again after one minute and after ten minutes.
-A file that is not a video fails at once.
+A file that ffprobe finds is not a video fails at once, and deneb removes it.
+Any other failure may pass, such as a bucket that did not answer, or ffmpeg that stopped.
+
+- deneb runs such an encoding again after 1 minute, 10 minutes, 1 hour, and 6 hours, five attempts in all (internal/app/jobs.go).
+- A video that still fails keeps its file for a week. `POST /v1/videos/{id}/retry`, or Retry on the page of the video in the dashboard, encodes it again.
+- ffprobe stops after 2 minutes, and each picture after 10. ffmpeg stops when it reports no progress for 10 minutes, as when it hangs on a broken file (internal/app/process.go).
+- An encoding waits while the disk has too little free space for its stream, and looks again every 5 minutes (internal/app/room.go). The waiting counts as no attempt, and the `error` of the queued video says why it waits.
+- A stop of deneb in the middle of an encoding counts as no attempt. A crash counts as one, so that an encoding that brings deneb down every time fails in the end.

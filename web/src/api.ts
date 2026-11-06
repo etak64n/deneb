@@ -133,6 +133,7 @@ export const api = {
   getVideo: (id: string) => request<{ video: Video }>("GET", `/v1/videos/${encodeURIComponent(id)}`),
   createVideo: (title: string) => request<{ video: Video; upload: Upload }>("POST", "/v1/videos", { title }),
   renameVideo: (id: string, title: string) => request<{ video: Video }>("PATCH", `/v1/videos/${encodeURIComponent(id)}`, { title }),
+  retryVideo: (id: string) => request<{ video: Video }>("POST", `/v1/videos/${encodeURIComponent(id)}/retry`),
   setPermanentURLs: (id: string, permanent: boolean) => request<{ video: Video }>("PATCH", `/v1/videos/${encodeURIComponent(id)}`, { permanent_urls: permanent }),
   deleteVideo: (id: string) => request<void>("DELETE", `/v1/videos/${encodeURIComponent(id)}`),
 

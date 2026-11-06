@@ -34,10 +34,19 @@ const MinPasswordLength = 12
 
 // internal/app/jobs.go: retries, the workers of webhooks, and what deneb keeps
 var webhookRetries = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour}
-var mediaRetries = []time.Duration{time.Minute, 10 * time.Minute}
+var mediaRetries = []time.Duration{time.Minute, 10 * time.Minute, time.Hour, 6 * time.Hour}
+const roomWait = 5 * time.Minute
 const lightWorkers = 4
 const deliveryHistory = 30 * 24 * time.Hour
 const staleAfter = 7 * 24 * time.Hour
+
+// internal/app/process.go: how long the programs of an encoding may run
+probeTimeout   = 2 * time.Minute
+pictureTimeout = 10 * time.Minute
+stallTimeout   = 10 * time.Minute
+
+// internal/app/room.go: the free disk that deneb keeps for its database
+const diskReserve = 1 << 30
 
 // internal/media/hls.go and internal/media/images.go: segments and the storyboard
 const SegmentSeconds = 4

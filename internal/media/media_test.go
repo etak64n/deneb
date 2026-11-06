@@ -2,6 +2,7 @@ package media
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -71,8 +72,18 @@ func TestProbeRefusesFilesWithoutVideo(t *testing.T) {
 	// Uploads are stored as "source", without the extension that ffprobe would also go by.
 	path := filepath.Join(t.TempDir(), "source")
 	os.WriteFile(path, []byte("these bytes are not a video, nor any other kind of media"), 0o644)
-	if _, err := ProbeFile(context.Background(), "ffprobe", path); err == nil {
-		t.Error("a text file passed as a video")
+	if _, err := ProbeFile(context.Background(), "ffprobe", path); !errors.Is(err, ErrNotAVideo) {
+		t.Errorf("a text file: %v, want ErrNotAVideo", err)
+	}
+}
+
+// An ffprobe that cannot run says nothing of the file, which may well be a video.
+func TestProbeThatCannotRunJudgesNoFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "source")
+	os.WriteFile(path, []byte("any bytes"), 0o644)
+	_, err := ProbeFile(context.Background(), filepath.Join(t.TempDir(), "no-ffprobe"), path)
+	if err == nil || errors.Is(err, ErrNotAVideo) {
+		t.Errorf("an ffprobe that does not exist: %v, want an error that is not ErrNotAVideo", err)
 	}
 }
 

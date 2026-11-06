@@ -68,6 +68,7 @@ export function VideoPage({ id, captions }: { id: string; captions: boolean }) {
   const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [switchingURLs, setSwitchingURLs] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   useTitle(video?.title || (video ? "Untitled" : ""));
 
   const load = useCallback(() => {
@@ -112,6 +113,20 @@ export function VideoPage({ id, captions }: { id: string; captions: boolean }) {
   }
 
   const playback = video.playback;
+  // A video whose encoding failed, or a ready one whose captions failed, can run again.
+  const failed = video.status === "failed" || (video.status === "ready" && video.captions.status === "failed");
+
+  function retry(id: string) {
+    setRetrying(true);
+    api
+      .retryVideo(id)
+      .then(({ video: fresh }) => {
+        setError("");
+        setVideo((old) => ({ ...fresh, playback: keepPlayback(old?.playback, fresh.playback) }));
+      })
+      .catch((reason: unknown) => setError(messageOf(reason)))
+      .finally(() => setRetrying(false));
+  }
 
   return (
     <div className="grid gap-8">
@@ -123,6 +138,11 @@ export function VideoPage({ id, captions }: { id: string; captions: boolean }) {
           title={video.title || "Untitled"}
           actions={
             <>
+              {failed && (
+                <Button onClick={() => retry(video.id)} disabled={retrying}>
+                  Retry
+                </Button>
+              )}
               <Button onClick={() => setRenaming(true)}>Rename</Button>
               <Button className="text-critical" onClick={() => setDeleting(true)}>
                 Delete

@@ -64,6 +64,18 @@ func (l *Local) PutFile(ctx context.Context, key, localPath string) error {
 	return copyFile(localPath, target)
 }
 
+func (l *Local) Exists(ctx context.Context, key string) (bool, error) {
+	target, err := l.path(key)
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Stat(target)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 func (l *Local) LocalFile(ctx context.Context, key, dir string) (string, func(), error) {
 	target, err := l.path(key)
 	if err != nil {

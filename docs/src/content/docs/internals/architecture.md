@@ -32,5 +32,9 @@ A video goes through six steps.
 - Permanent URLs hold `permanent` in place of the token (internal/app/app.go). deneb reads the video on each request with them, so switching it back to expiring URLs ends them at once, unlike a signed URL that lasts until it expires.
 - With S3 storage, the media go through deneb by default (internal/storage/s3.go). Browsers then need no route to the endpoint of the bucket, and the bucket needs no CORS rules, the rules that let pages of other sites read its files. `DENEB_S3_REDIRECTS=true` sends players to the bucket instead, which spares the bandwidth of deneb.
 - Captions run on the CPU of the server (internal/media/captions.go). The audio of your videos goes to no other service.
+- whisper.cpp in the image comes with its code for each level of the instructions of the architecture, and loads the one that its CPU runs (Dockerfile). The captions then work on any CPU of the architecture, and as fast as each allows.
+- A job that fails for a reason that may pass runs again for about seven hours, and the file of a video that still fails stays for a week (internal/app/jobs.go). A long outage then costs no upload, and a retry needs no new one.
+- A stop of deneb puts the jobs that ran back in the queue, without counting them as attempts. A crash counts, so that a job that brings deneb down every time fails in the end.
+- Webhooks reach only addresses on the internet, unless a setting lists a private network (internal/app/egress.go). A key of the API then cannot send requests into the network of deneb.
 - The first administrator needs a setup code from the log (internal/app/auth.go). Without it, the first person to reach a new server could claim it.
 - Every setting is an environment variable with a default (internal/config/config.go). deneb checks every setting at start and names each one that is wrong.

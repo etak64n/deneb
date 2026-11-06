@@ -132,5 +132,7 @@ upload.start();
 
 - A file can be up to 50 GB, which `DENEB_MAX_UPLOAD_GB` changes.
 - A video takes one file. An upload for a video that has its file gets 409.
+- One upload of a video runs at a time. A second PUT while one sends its file gets 409, and a PUT stops a tus upload of the video that has not finished.
+- An upload that the free disk of deneb cannot take gets 507, since deneb keeps about 1 GB free for its database.
 - deneb deletes the videos whose file never arrived after seven days, with what arrived of their uploads.
 - The dashboard uploads three files at a time, in parts of 64 MiB, and resumes them after a lost connection.

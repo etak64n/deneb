@@ -49,6 +49,11 @@ type probeOutput struct {
 	} `json:"format"`
 }
 
+// ErrNotAVideo is in the errors of a file that ffprobe read and found no video in. Any
+// other error of ProbeFile, such as an ffprobe that could not start or was stopped,
+// says nothing of the file.
+var ErrNotAVideo = errors.New("the file is not a video")
+
 // ProbeFile reads the duration, size, and tracks of a video with ffprobe.
 func ProbeFile(ctx context.Context, ffprobe, path string) (Probe, error) {
 	cmd := exec.CommandContext(ctx, ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path)
@@ -56,6 +61,12 @@ func ProbeFile(ctx context.Context, ffprobe, path string) (Probe, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		// ffprobe that ran to its end and failed refused the file. One that a signal
+		// stopped, or that never started, did not judge it.
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.Exited() && ctx.Err() == nil {
+			return Probe{}, fmt.Errorf("%w: ffprobe: %s", ErrNotAVideo, lastLines(stderr.String(), 3, err))
+		}
 		return Probe{}, fmt.Errorf("ffprobe: %s", lastLines(stderr.String(), 3, err))
 	}
 	var output probeOutput
@@ -84,13 +95,13 @@ func ProbeFile(ctx context.Context, ffprobe, path string) (Probe, error) {
 		}
 	}
 	if !found {
-		return Probe{}, errors.New("the file has no video track")
+		return Probe{}, fmt.Errorf("%w: it has no video track", ErrNotAVideo)
 	}
 	if duration := parseSeconds(output.Format.Duration); duration > 0 {
 		probe.Duration = duration
 	}
 	if probe.Duration <= 0 {
-		return Probe{}, errors.New("ffprobe found no duration")
+		return Probe{}, fmt.Errorf("%w: ffprobe found no duration", ErrNotAVideo)
 	}
 	return probe, nil
 }

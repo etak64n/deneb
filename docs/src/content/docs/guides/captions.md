@@ -24,6 +24,7 @@ Captions run on the CPU of the server (internal/media/captions.go), so the audio
 - The models are tiny, base, small, medium, large-v3, and large-v3-turbo, and base is the default. `DENEB_CAPTIONS_MODEL` sets one.
 - A larger model is more accurate and slower. base is a good start, and small and larger models are much slower on a CPU.
 - deneb downloads the model on first use from Hugging Face (huggingface.co/ggerganov/whisper.cpp), into the models folder of the volume. The captions of the first video therefore take longer.
+- A download that receives nothing for 2 minutes stops, and runs again with the job (internal/media/captions.go).
 
 ## Languages
 
@@ -33,6 +34,10 @@ deneb detects the spoken language by default. `DENEB_CAPTIONS_LANGUAGE` sets one
 
 Transcription takes CPU time after each encoding.
 `DENEB_WORKERS` sets how many videos deneb works on at once, and `DENEB_THREADS` how many threads each one uses.
+
+- whisper.cpp runs at a lower priority than deneb, so the API and playback take the CPU first (internal/media/priority_unix.go).
+- A transcription stops after ten times the length of the video, and at least an hour, which only one that hangs takes (internal/app/process.go).
+- whisper.cpp in the image picks the code for the instructions of the CPU that it runs on, so it runs on CPUs without AVX2 too, such as those of many NAS.
 
 ## Memory
 
@@ -49,7 +54,8 @@ Each worker that `DENEB_WORKERS` adds transcribes with a model of its own, so tw
 A limit on the memory of the container, such as `mem_limit` in compose.yaml, needs room for the model.
 
 - Without the room, the system stops whisper.cpp when it runs out of memory.
-- deneb then runs the transcription again after one minute and after ten minutes (internal/app/jobs.go), and marks the captions of the video as failed after the third attempt.
+- deneb then runs the transcription again after 1 minute, 10 minutes, 1 hour, and 6 hours (internal/app/jobs.go), and marks the captions of the video as failed after the fifth attempt.
+- `POST /v1/videos/{id}/retry`, or Retry on the page of the video in the dashboard, runs failed captions again, once the container has room.
 
 ## Where the captions appear
 
