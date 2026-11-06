@@ -155,43 +155,43 @@ func TestViewSignsReadyVideosForAnHour(t *testing.T) {
 	}
 }
 
-func TestPublicPlayback(t *testing.T) {
+func TestPermanentURLs(t *testing.T) {
 	ctx := context.Background()
 	a := newApp(t)
 	video, _, err := a.CreateVideo(ctx, "Talk", "https://video.example.com", true)
-	if err != nil || !video.Public {
-		t.Fatalf("create a public video: %+v, %v", video, err)
+	if err != nil || !video.PermanentURLs {
+		t.Fatalf("create a video with permanent URLs: %+v, %v", video, err)
 	}
 	a.store.QueueVideo(ctx, video.ID, 1, a.now())
 	a.store.ReadyVideo(ctx, video.ID, 10, 1280, 720, nil, false, a.now())
 	video, _ = a.store.Video(ctx, video.ID)
 
 	view := a.View(video, "https://video.example.com")
-	want := "https://video.example.com/play/" + video.ID + "/public/"
-	if !view.Public || view.Playback == nil || view.Playback.HLSURL != want+"hls/master.m3u8" || view.Playback.PosterURL != want+"poster.jpg" ||
+	want := "https://video.example.com/play/" + video.ID + "/permanent/"
+	if !view.PermanentURLs || view.Playback == nil || view.Playback.HLSURL != want+"hls/master.m3u8" || view.Playback.PosterURL != want+"poster.jpg" ||
 		view.Playback.EmbedURL != "https://video.example.com/embed/"+video.ID || view.Playback.ExpiresAt != nil {
 		t.Fatalf("view %+v, playback %+v", view, view.Playback)
 	}
-	if allowed, err := a.PlaybackAllowed(ctx, video.ID, PublicToken); !allowed || err != nil {
-		t.Errorf("public URLs of a public video: %v, %v", allowed, err)
+	if allowed, err := a.PlaybackAllowed(ctx, video.ID, PermanentToken); !allowed || err != nil {
+		t.Errorf("permanent URLs of a video that has them: %v, %v", allowed, err)
 	}
-	if allowed, _ := a.PlaybackAllowed(ctx, "vid_missing", PublicToken); allowed {
-		t.Error("public URLs of a missing video are allowed")
+	if allowed, _ := a.PlaybackAllowed(ctx, "vid_missing", PermanentToken); allowed {
+		t.Error("permanent URLs of a missing video are allowed")
 	}
 
-	// A private video plays under signed URLs only, and its public URLs end at once.
-	a.store.SetVideoPublic(ctx, video.ID, false, a.now())
+	// Without permanent URLs, the video plays under signed URLs only, and those end at once.
+	a.store.SetVideoPermanentURLs(ctx, video.ID, false, a.now())
 	video, _ = a.store.Video(ctx, video.ID)
 	signed := a.View(video, "https://video.example.com").Playback
-	if signed == nil || signed.ExpiresAt == nil || strings.Contains(signed.HLSURL, "/public/") || !strings.Contains(signed.EmbedURL, "?token=") {
-		t.Fatalf("playback of a private video %+v", signed)
+	if signed == nil || signed.ExpiresAt == nil || strings.Contains(signed.HLSURL, "/permanent/") || !strings.Contains(signed.EmbedURL, "?token=") {
+		t.Fatalf("playback without permanent URLs %+v", signed)
 	}
-	if allowed, _ := a.PlaybackAllowed(ctx, video.ID, PublicToken); allowed {
-		t.Error("public URLs of a private video are allowed")
+	if allowed, _ := a.PlaybackAllowed(ctx, video.ID, PermanentToken); allowed {
+		t.Error("permanent URLs that were taken away are allowed")
 	}
 	token := strings.Split(strings.TrimPrefix(signed.HLSURL, "https://video.example.com/play/"+video.ID+"/"), "/")[0]
 	if allowed, _ := a.PlaybackAllowed(ctx, video.ID, token); !allowed {
-		t.Error("the signed URLs of a private video are refused")
+		t.Error("the signed URLs are refused")
 	}
 }
 

@@ -48,15 +48,15 @@ type Video struct {
 	Renditions       []Rendition
 	CaptionsStatus   string
 	CaptionsLanguage string
-	// Public lets anyone play the video under URLs that never expire.
-	Public    bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	ReadyAt   *time.Time
+	// PermanentURLs lets the video play under URLs that never expire.
+	PermanentURLs bool
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	ReadyAt       *time.Time
 }
 
 const videoColumns = `id, title, status, error, progress, source_size, duration, width, height, renditions,
-	captions_status, captions_language, public, created_at, updated_at, ready_at`
+	captions_status, captions_language, permanent_urls, created_at, updated_at, ready_at`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -68,7 +68,7 @@ func scanVideo(row scanner) (Video, error) {
 	var created, updated int64
 	var ready sql.NullInt64
 	err := row.Scan(&video.ID, &video.Title, &video.Status, &video.Error, &video.Progress, &video.SourceSize, &video.Duration,
-		&video.Width, &video.Height, &renditions, &video.CaptionsStatus, &video.CaptionsLanguage, &video.Public, &created, &updated, &ready)
+		&video.Width, &video.Height, &renditions, &video.CaptionsStatus, &video.CaptionsLanguage, &video.PermanentURLs, &created, &updated, &ready)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Video{}, ErrNotFound
 	}
@@ -136,14 +136,14 @@ func (s *Store) SetVideoTitle(ctx context.Context, id, title string, now time.Ti
 	return expectRow(s.db.ExecContext(ctx, `UPDATE videos SET title = ?, updated_at = ? WHERE id = ?`, title, millis(now), id))
 }
 
-// SetVideoPublic makes a video public, so that it plays under URLs that never expire,
-// or makes it play under signed URLs only, which ends its public URLs.
-func (s *Store) SetVideoPublic(ctx context.Context, id string, public bool, now time.Time) error {
+// SetVideoPermanentURLs gives a video permanent URLs, which never expire, or takes them
+// away, so that it plays under signed URLs only and its permanent URLs end.
+func (s *Store) SetVideoPermanentURLs(ctx context.Context, id string, permanent bool, now time.Time) error {
 	value := 0
-	if public {
+	if permanent {
 		value = 1
 	}
-	return expectRow(s.db.ExecContext(ctx, `UPDATE videos SET public = ?, updated_at = ? WHERE id = ?`, value, millis(now), id))
+	return expectRow(s.db.ExecContext(ctx, `UPDATE videos SET permanent_urls = ?, updated_at = ? WHERE id = ?`, value, millis(now), id))
 }
 
 // QueueVideo records that the upload of a video finished, and queues its encoding,

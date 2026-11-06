@@ -43,7 +43,7 @@ The answer of `POST /v1/videos` holds the video and two ways to upload its file.
   "video": {
     "id": "vid_7wfd5nhpwadrdxgd7laif6x7ry",
     "title": "Product tour",
-    "public": false,
+    "permanent_urls": false,
     "status": "waiting",
     "progress": 0,
     "duration": 0,

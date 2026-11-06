@@ -48,7 +48,7 @@ deneb encodes the video, and writes its captions
 - The webhooks are `video.ready`, `video.failed`, and `video.captions_ready`. Your app can publish a video when its `video.ready` arrives.
 - The URLs are signed, and expire after 24 hours by default, so a URL that someone copies stops working a day later. The video itself stays, and each answer of the API carries fresh URLs.
 - Your app asks deneb for the video when it shows a page, so viewers always get URLs that work.
-- A page that pastes an embed code once and has no server, such as a blog post, needs URLs that never expire. A video that you make public has them, until you make it private again.
+- A page that pastes an embed code once and has no server, such as a blog post, needs URLs that never expire. A video with permanent URLs has them, until you switch it back to expiring URLs.
 - The files stay on the volume of deneb, or in an S3-compatible bucket. deneb offers no MP4 downloads of its encodings.
 
 ## Features
@@ -56,7 +56,7 @@ deneb encodes the video, and writes its captions
 - Encoding: up to four qualities from 1080p to 360p, in H.264 and AAC, with a poster and a storyboard for previews on the seek bar
 - Uploads: one PUT to a signed URL, or tus, which resumes after a lost connection, for files of up to 50 GB
 - Captions: whisper.cpp on the CPU of the server, in the spoken language that it detects, so the audio goes to no other service
-- Playback: signed URLs that expire, or public URLs that do not, for any HLS player, and an embed page for an iframe on any site
+- Playback: signed URLs that expire, or permanent URLs that do not, for any HLS player, and an embed page for an iframe on any site
 - Webhooks: signed events when a video is ready, when it failed, and when its captions are ready, sent again when a delivery fails
 - Dashboard: uploads, plays, renames, and deletes videos, and manages the keys of the API and the webhooks
 - Storage: the volume of deneb, or a bucket of Amazon S3, Cloudflare R2, or another S3-compatible service

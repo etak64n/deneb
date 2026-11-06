@@ -181,15 +181,15 @@ curl -fsS "$(jq -r .video.playback.embed_url <<<"$video")" | grep -q '<div id="r
 [[ $(curl -s -o /dev/null -w '%{http_code}' "$base/play/$id/1.forged/hls/master.m3u8") == 403 ]] \
   || fail "a forged playback token was accepted"
 
-echo "Make the video public, and play it under URLs without a token"
-public=$(curl "${api[@]}" -X PATCH -d '{"public": true}' "$base/v1/videos/$id")
-[[ $(jq -r .video.playback.hls_url <<<"$public") == */play/$id/public/hls/master.m3u8 ]] || fail "a public video has no public URL"
-[[ $(jq -r .video.playback.expires_at <<<"$public") == null ]] || fail "the URLs of a public video expire"
-curl -fsS "$base/play/$id/public/hls/master.m3u8" | grep -q '#EXT-X-STREAM-INF' || fail "the public master playlist did not play"
-curl -fsS "$base/embed/$id" | grep -q '<div id="root">' || fail "the embed page of a public video did not load"
-curl "${api[@]}" -X PATCH -d '{"public": false}' "$base/v1/videos/$id" >/dev/null
-[[ $(curl -s -o /dev/null -w '%{http_code}' "$base/play/$id/public/hls/master.m3u8") == 403 ]] \
-  || fail "a video made private still plays under its public URL"
+echo "Give the video permanent URLs, and play it under them without a token"
+permanent=$(curl "${api[@]}" -X PATCH -d '{"permanent_urls": true}' "$base/v1/videos/$id")
+[[ $(jq -r .video.playback.hls_url <<<"$permanent") == */play/$id/permanent/hls/master.m3u8 ]] || fail "the video has no permanent URL"
+[[ $(jq -r .video.playback.expires_at <<<"$permanent") == null ]] || fail "the permanent URLs expire"
+curl -fsS "$base/play/$id/permanent/hls/master.m3u8" | grep -q '#EXT-X-STREAM-INF' || fail "the permanent master playlist did not play"
+curl -fsS "$base/embed/$id" | grep -q '<div id="root">' || fail "the permanent embed page did not load"
+curl "${api[@]}" -X PATCH -d '{"permanent_urls": false}' "$base/v1/videos/$id" >/dev/null
+[[ $(curl -s -o /dev/null -w '%{http_code}' "$base/play/$id/permanent/hls/master.m3u8") == 403 ]] \
+  || fail "a permanent URL still plays after it was taken away"
 
 echo "Check the signed webhooks"
 for _ in $(seq 30); do

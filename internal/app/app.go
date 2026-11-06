@@ -171,15 +171,15 @@ func (a *App) VerifyPlaybackToken(videoID, token string) bool {
 	return a.verify("playback", videoID, token)
 }
 
-// PublicToken stands in the place of the token in the playback URLs of a public video,
+// PermanentToken stands in the place of the token in the permanent URLs of a video,
 // which never expire. No signed token can equal it, since those hold a dot.
-const PublicToken = "public"
+const PermanentToken = "permanent"
 
 // PlaybackAllowed tells whether a playback URL with this token may serve the video:
-// a signed token that has not expired, or PublicToken while the video is public. It
-// reads the video for PublicToken, so that making a video private ends its URLs at once.
+// a signed token that has not expired, or PermanentToken while the video has permanent
+// URLs. It reads the video for PermanentToken, so that taking those away ends them at once.
 func (a *App) PlaybackAllowed(ctx context.Context, videoID, token string) (bool, error) {
-	if token != PublicToken {
+	if token != PermanentToken {
 		return a.VerifyPlaybackToken(videoID, token), nil
 	}
 	video, err := a.store.Video(ctx, videoID)
@@ -189,7 +189,7 @@ func (a *App) PlaybackAllowed(ctx context.Context, videoID, token string) (bool,
 	if err != nil {
 		return false, err
 	}
-	return video.Public, nil
+	return video.PermanentURLs, nil
 }
 
 // Storage keys of the files of a video.
@@ -216,21 +216,21 @@ func PlaybackKey(videoID, path string) string {
 
 // VideoView is the form of a video in the API and in webhook events.
 type VideoView struct {
-	ID         string            `json:"id"`
-	Title      string            `json:"title"`
-	Public     bool              `json:"public"`
-	Status     string            `json:"status"`
-	Error      string            `json:"error,omitempty"`
-	Progress   float64           `json:"progress"`
-	Duration   float64           `json:"duration"`
-	Width      int               `json:"width"`
-	Height     int               `json:"height"`
-	SourceSize int64             `json:"source_size"`
-	Renditions []store.Rendition `json:"renditions"`
-	Captions   CaptionsView      `json:"captions"`
-	CreatedAt  time.Time         `json:"created_at"`
-	ReadyAt    *time.Time        `json:"ready_at"`
-	Playback   *PlaybackView     `json:"playback,omitempty"`
+	ID            string            `json:"id"`
+	Title         string            `json:"title"`
+	PermanentURLs bool              `json:"permanent_urls"`
+	Status        string            `json:"status"`
+	Error         string            `json:"error,omitempty"`
+	Progress      float64           `json:"progress"`
+	Duration      float64           `json:"duration"`
+	Width         int               `json:"width"`
+	Height        int               `json:"height"`
+	SourceSize    int64             `json:"source_size"`
+	Renditions    []store.Rendition `json:"renditions"`
+	Captions      CaptionsView      `json:"captions"`
+	CreatedAt     time.Time         `json:"created_at"`
+	ReadyAt       *time.Time        `json:"ready_at"`
+	Playback      *PlaybackView     `json:"playback,omitempty"`
 }
 
 // CaptionsView is the state of the captions of a video.
@@ -240,7 +240,7 @@ type CaptionsView struct {
 }
 
 // PlaybackView holds the URLs that play a ready video: signed ones until ExpiresAt,
-// or, for a public video, ones that never expire, with a nil ExpiresAt.
+// or, for a video with permanent URLs, ones that never expire, with a nil ExpiresAt.
 type PlaybackView struct {
 	HLSURL        string     `json:"hls_url"`
 	PosterURL     string     `json:"poster_url"`
@@ -254,7 +254,7 @@ type PlaybackView struct {
 // https://video.example.com, or are paths when base is empty.
 func (a *App) View(video store.Video, base string) VideoView {
 	view := VideoView{
-		ID: video.ID, Title: video.Title, Public: video.Public, Status: video.Status, Error: video.Error, Progress: video.Progress,
+		ID: video.ID, Title: video.Title, PermanentURLs: video.PermanentURLs, Status: video.Status, Error: video.Error, Progress: video.Progress,
 		Duration: video.Duration, Width: video.Width, Height: video.Height, SourceSize: video.SourceSize,
 		Renditions: video.Renditions, CreatedAt: video.CreatedAt, ReadyAt: video.ReadyAt,
 		Captions: CaptionsView{Status: video.CaptionsStatus, Language: video.CaptionsLanguage},
@@ -263,9 +263,9 @@ func (a *App) View(video store.Video, base string) VideoView {
 		view.Renditions = []store.Rendition{}
 	}
 	if video.Status == store.VideoReady {
-		// A public video has URLs that never change, and an embed URL without a token.
-		token, embed, expires := PublicToken, fmt.Sprintf("%s/embed/%s", base, video.ID), (*time.Time)(nil)
-		if !video.Public {
+		// Permanent URLs never change, and their embed URL has no token.
+		token, embed, expires := PermanentToken, fmt.Sprintf("%s/embed/%s", base, video.ID), (*time.Time)(nil)
+		if !video.PermanentURLs {
 			// Rounding up to the hour keeps the URLs the same for an hour, so that players
 			// and caches reuse them. They stay valid for at least TTL, at most an hour more.
 			exp := a.now().Add(a.cfg.PlaybackTTL)
@@ -307,17 +307,17 @@ type TusView struct {
 	Metadata map[string]string `json:"metadata"`
 }
 
-// CreateVideo creates a video, public or not, and returns where to upload its file.
-func (a *App) CreateVideo(ctx context.Context, title, base string, public bool) (store.Video, UploadView, error) {
+// CreateVideo creates a video, with permanent URLs or not, and returns where to upload its file.
+func (a *App) CreateVideo(ctx context.Context, title, base string, permanentURLs bool) (store.Video, UploadView, error) {
 	video, err := a.store.CreateVideo(ctx, NewID("vid"), title, a.now())
 	if err != nil {
 		return store.Video{}, UploadView{}, err
 	}
-	if public {
-		if err := a.store.SetVideoPublic(ctx, video.ID, true, a.now()); err != nil {
+	if permanentURLs {
+		if err := a.store.SetVideoPermanentURLs(ctx, video.ID, true, a.now()); err != nil {
 			return store.Video{}, UploadView{}, err
 		}
-		video.Public = true
+		video.PermanentURLs = true
 	}
 	exp := a.now().Add(UploadTTL).Truncate(time.Second)
 	token := a.sign("upload", video.ID, exp)

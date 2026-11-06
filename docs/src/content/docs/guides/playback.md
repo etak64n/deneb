@@ -1,10 +1,10 @@
 ---
 title: Play videos
-description: Get the URLs of a ready video, signed or public, play its stream in any HLS player, and embed it in an iframe on any site.
+description: Get the URLs of a ready video, expiring or permanent, play its stream in any HLS player, and embed it in an iframe on any site.
 ---
 
 A ready video has URLs that play its stream in any HLS player, and an embed page for an iframe on any site.
-The URLs are signed and expire, or, for a public video, never expire. This page gets them, explains both kinds, and embeds a video.
+The URLs are signed and expire, or, when the video has permanent URLs, never expire. This page gets them, explains both kinds, and embeds a video.
 
 ## Get the playback URLs
 
@@ -43,27 +43,27 @@ The URLs expire, so a URL that someone copies stops working, while the video its
 Each answer of the API carries fresh URLs, so a page that your server builds always has URLs that work.
 
 - The URLs work until `expires_at`. They last at least `DENEB_PLAYBACK_TTL_HOURS`, 24 by default, rounded up to the hour.
-- A page that pastes an embed code once and has no server, such as a blog post, needs URLs that never expire. The next section makes a video public for it.
+- A page that pastes an embed code once and has no server, such as a blog post, needs URLs that never expire. The next section gives a video permanent URLs for it.
 - The playback URLs of a video stay the same for an hour, so players and CDNs can reuse what they fetched.
 - A playback URL carries its signed token in the path (internal/app/app.go). The relative URLs inside the playlists then carry the token too.
 
-## Public URLs
+## Permanent URLs
 
-A public video plays under URLs that never expire, for a page that pastes an embed code once.
-A video is private by default. This request makes it public.
+Permanent URLs never expire, for a page that pastes an embed code once.
+A video has expiring URLs by default. This request gives it permanent ones.
 
 ```sh
-# Make a video public. KEY is a key of the API.
+# Give a video permanent URLs. KEY is a key of the API.
 curl -s -X PATCH https://video.example.com/v1/videos/vid_7wfd5nhpwadrdxgd7laif6x7ry \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
-  -d '{"public": true}'
+  -d '{"permanent_urls": true}'
 ```
 
-- `POST /v1/videos` takes `"public": true` as well, and the page of a video in the dashboard has a Make public button.
-- The URLs of a public video hold `public` in place of the token, such as https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/public/hls/master.m3u8. Its embed URL has no token, and `expires_at` is null.
-- Anyone with these URLs can play the video, and an embed code with them keeps working.
-- `"public": false` ends them at once, since deneb checks the video on each request (internal/app/app.go). Browsers and CDNs may still serve the segments and pictures that they keep, for up to a day.
+- `POST /v1/videos` takes `"permanent_urls": true` as well, and the page of a video in the dashboard has a Use permanent URLs button.
+- Permanent URLs hold `permanent` in place of the token, such as https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/permanent/hls/master.m3u8. The embed URL has no token, and `expires_at` is null.
+- Anyone with these URLs can play the video, as with expiring URLs, and an embed code with them keeps working.
+- `"permanent_urls": false` ends them at once, since deneb checks the video on each request (internal/app/app.go). Browsers and CDNs may still serve the segments and pictures that they keep, for up to a day.
 
 ## Embed a video
 

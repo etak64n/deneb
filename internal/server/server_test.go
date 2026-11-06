@@ -652,23 +652,23 @@ func TestPlayback(t *testing.T) {
 	if r := h.do("GET", "/embed/"+id+"?token=123.abc", nil); r.status != http.StatusForbidden || !strings.Contains(string(r.body), "<title>embed</title>") {
 		t.Errorf("embed with a forged token: %d %s", r.status, r.body)
 	}
-	// Without a token, the embed page is for public videos only.
+	// Without a token, the embed page is for permanent URLs only.
 	if r := h.do("GET", "/embed/"+id, nil); r.status != http.StatusForbidden {
-		t.Errorf("embed of a private video without a token: %d", r.status)
+		t.Errorf("embed without a token of a video with expiring URLs: %d", r.status)
 	}
-	if r := h.do("GET", "/play/"+id+"/public/hls/master.m3u8", nil); r.status != http.StatusForbidden {
-		t.Errorf("public URL of a private video: %d", r.status)
+	if r := h.do("GET", "/play/"+id+"/permanent/hls/master.m3u8", nil); r.status != http.StatusForbidden {
+		t.Errorf("permanent URL of a video without them: %d", r.status)
 	}
 }
 
-func TestPublicPlayback(t *testing.T) {
+func TestPermanentURLs(t *testing.T) {
 	h := newHarness(t, nil)
 	h.signIn()
 	ctx := context.Background()
 	var created createdVideo
-	h.dashboard("POST", "/v1/videos", map[string]any{"title": "Clip", "public": true}).json(t, &created)
+	h.dashboard("POST", "/v1/videos", map[string]any{"title": "Clip", "permanent_urls": true}).json(t, &created)
 	id := created.Video.ID
-	if !created.Video.Public {
+	if !created.Video.PermanentURLs {
 		t.Fatalf("created %+v", created.Video)
 	}
 	h.app.Store().QueueVideo(ctx, id, 1, time.Now())
@@ -684,36 +684,36 @@ func TestPublicPlayback(t *testing.T) {
 	}
 	h.do("GET", "/v1/videos/"+id, nil).json(t, &got)
 	playback := got.Video.Playback
-	if playback == nil || playback.HLSURL != h.url+"/play/"+id+"/public/hls/master.m3u8" || playback.EmbedURL != h.url+"/embed/"+id || playback.ExpiresAt != nil {
+	if playback == nil || playback.HLSURL != h.url+"/play/"+id+"/permanent/hls/master.m3u8" || playback.EmbedURL != h.url+"/embed/"+id || playback.ExpiresAt != nil {
 		t.Fatalf("playback %+v", playback)
 	}
 	session := h.client.Jar
 	h.client.Jar, _ = cookiejar.New(nil) // Viewers have no session.
-	if r := h.do("GET", "/play/"+id+"/public/hls/master.m3u8", nil); r.status != http.StatusOK || string(r.body) != "#EXTM3U\n" {
-		t.Errorf("public master playlist: %d %q", r.status, r.body)
+	if r := h.do("GET", "/play/"+id+"/permanent/hls/master.m3u8", nil); r.status != http.StatusOK || string(r.body) != "#EXTM3U\n" {
+		t.Errorf("permanent master playlist: %d %q", r.status, r.body)
 	}
 	if r := h.do("GET", "/embed/"+id, nil); r.status != http.StatusOK {
-		t.Errorf("embed of a public video: %d", r.status)
+		t.Errorf("embed with permanent URLs: %d", r.status)
 	}
 
-	// Making the video private ends its public URLs at once.
+	// Taking the permanent URLs away ends them at once.
 	h.client.Jar = session
 	var changed struct {
 		Video app.VideoView `json:"video"`
 	}
-	h.dashboard("PATCH", "/v1/videos/"+id, map[string]any{"public": false}).json(t, &changed)
-	if changed.Video.Public || changed.Video.Playback == nil || changed.Video.Playback.ExpiresAt == nil {
-		t.Fatalf("private video %+v", changed.Video)
+	h.dashboard("PATCH", "/v1/videos/"+id, map[string]any{"permanent_urls": false}).json(t, &changed)
+	if changed.Video.PermanentURLs || changed.Video.Playback == nil || changed.Video.Playback.ExpiresAt == nil {
+		t.Fatalf("video without permanent URLs %+v", changed.Video)
 	}
 	h.client.Jar, _ = cookiejar.New(nil)
-	if r := h.do("GET", "/play/"+id+"/public/hls/master.m3u8", nil); r.status != http.StatusForbidden {
-		t.Errorf("public URL of a video made private: %d", r.status)
+	if r := h.do("GET", "/play/"+id+"/permanent/hls/master.m3u8", nil); r.status != http.StatusForbidden {
+		t.Errorf("permanent URL after they were taken away: %d", r.status)
 	}
 	if r := h.do("GET", "/embed/"+id, nil); r.status != http.StatusForbidden {
-		t.Errorf("embed without a token of a video made private: %d", r.status)
+		t.Errorf("embed without a token after the permanent URLs were taken away: %d", r.status)
 	}
 	if r := h.do("GET", strings.TrimPrefix(changed.Video.Playback.HLSURL, h.url), nil); r.status != http.StatusOK {
-		t.Errorf("signed URL of a private video: %d", r.status)
+		t.Errorf("signed URL without permanent URLs: %d", r.status)
 	}
 }
 
