@@ -344,15 +344,18 @@ func (a *App) RemoveUpload(videoID string) {
 	}
 }
 
-// UploadFinished queues the encoding of a video whose file arrived. The file stays
+// UploadFinished queues the encoding of a video whose file arrived, and returns the
+// video as queued. It reads the video before it wakes the workers, since a worker may
+// take the video at once, and the answer to an upload shows it queued. The file stays
 // where it arrived until the encoder has stored it, so that a stop loses nothing. It
 // returns store.ErrNotFound when the video is gone or no longer waits for its file.
-func (a *App) UploadFinished(ctx context.Context, videoID string, size int64) error {
+func (a *App) UploadFinished(ctx context.Context, videoID string, size int64) (store.Video, error) {
 	if err := a.store.QueueVideo(ctx, videoID, size, a.now()); err != nil {
-		return err
+		return store.Video{}, err
 	}
+	video, err := a.store.Video(ctx, videoID)
 	a.Wake()
-	return nil
+	return video, err
 }
 
 // recoverUploads queues the videos whose file arrived but which deneb did not queue,
@@ -378,7 +381,7 @@ func (a *App) recoverUploads(ctx context.Context) {
 		if err != nil || video.Status != store.VideoWaiting {
 			continue
 		}
-		if err := a.UploadFinished(ctx, info.ID, info.Size); err != nil {
+		if _, err := a.UploadFinished(ctx, info.ID, info.Size); err != nil {
 			a.log.Error("queue a video whose file arrived", "video", info.ID, "error", err)
 			continue
 		}

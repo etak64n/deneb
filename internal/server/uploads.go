@@ -82,7 +82,7 @@ func (s *Server) checkUpload(hook handler.HookEvent) (handler.HTTPResponse, hand
 func (s *Server) uploadFinished(hook handler.HookEvent) (handler.HTTPResponse, error) {
 	videoID := hook.Upload.ID
 	ctx := context.WithoutCancel(hook.Context)
-	err := s.app.UploadFinished(ctx, videoID, hook.Upload.Size)
+	_, err := s.app.UploadFinished(ctx, videoID, hook.Upload.Size)
 	if errors.Is(err, store.ErrNotFound) {
 		// The video was deleted meanwhile, or already has its file.
 		if _, lookErr := s.app.Store().Video(ctx, videoID); errors.Is(lookErr, store.ErrNotFound) {
@@ -263,7 +263,8 @@ func (s *Server) putUpload(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	ctx := context.WithoutCancel(r.Context())
-	if err := s.app.UploadFinished(ctx, id, size); err != nil {
+	// The answer shows the video as queued, though a worker may have taken it since.
+	if video, err = s.app.UploadFinished(ctx, id, size); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			// The file goes only with its video. A video that has its file already keeps
 			// it, as a finished tus upload does.
@@ -279,9 +280,5 @@ func (s *Server) putUpload(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	s.log.Info("received the file of a video", "video", id, "bytes", size)
-	if video, err = s.app.Store().Video(ctx, id); err != nil {
-		s.fail(w, err)
-		return
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"video": s.app.View(video, s.baseURL(r))})
 }

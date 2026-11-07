@@ -23,7 +23,7 @@ func uploadedVideo(t *testing.T, a *App, id string) *store.Job {
 	a.store.CreateVideo(ctx, id, "", a.now())
 	os.MkdirAll(filepath.Join(a.cfg.DataDir, "uploads"), 0o755)
 	os.WriteFile(a.UploadPath(id), []byte("a video, perhaps"), 0o644)
-	if err := a.UploadFinished(ctx, id, 16); err != nil {
+	if _, err := a.UploadFinished(ctx, id, 16); err != nil {
 		t.Fatal(err)
 	}
 	job, err := a.store.ClaimJob(ctx, []string{store.JobTranscode}, a.now())

@@ -318,20 +318,21 @@ func TestUploadFinished(t *testing.T) {
 	ctx := context.Background()
 	a := newApp(t)
 	a.store.CreateVideo(ctx, "vid_a", "", a.now())
-	if err := a.UploadFinished(ctx, "vid_a", 5); err != nil {
+	video, err := a.UploadFinished(ctx, "vid_a", 5)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if video, _ := a.store.Video(ctx, "vid_a"); video.Status != store.VideoQueued || video.SourceSize != 5 {
+	if video.Status != store.VideoQueued || video.SourceSize != 5 {
 		t.Errorf("video %+v", video)
 	}
 	if job, _ := a.store.ClaimJob(ctx, []string{store.JobTranscode}, a.now()); job == nil || job.Ref != "vid_a" {
 		t.Errorf("no encoding was queued: %+v", job)
 	}
 	// A second report of the same upload, and one of a deleted video, change nothing.
-	if err := a.UploadFinished(ctx, "vid_a", 5); !errors.Is(err, store.ErrNotFound) {
+	if _, err := a.UploadFinished(ctx, "vid_a", 5); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("a second report: %v", err)
 	}
-	if err := a.UploadFinished(ctx, "vid_gone", 5); !errors.Is(err, store.ErrNotFound) {
+	if _, err := a.UploadFinished(ctx, "vid_gone", 5); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("a deleted video: %v", err)
 	}
 }
