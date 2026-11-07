@@ -1,7 +1,7 @@
 # Publishes the image to ghcr.io/etak64n/deneb for every tag v*, for amd64 and
 # arm64. Each architecture builds on a runner of its own, which is far faster than
-# emulation, and runs the end-to-end tests there. A last job joins the images that
-# passed under one tag.
+# emulation, and runs the end-to-end tests there. A job joins the images that passed
+# under one tag, and the last one publishes the GitHub release of the tag.
 name: Release
 
 on:
@@ -109,3 +109,35 @@ jobs:
             $(printf '${{ env.IMAGE }}@sha256:%s ' *)
 
       - run: docker buildx imagetools inspect "${{ env.IMAGE }}:${{ steps.meta.outputs.version }}"
+
+  # The GitHub release comes after the image that it announces. The tag must be
+  # annotated, and its message becomes the notes of the release: changes reach main
+  # as commits rather than pull requests, so notes that GitHub generates would list
+  # nothing.
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # The checkout points the tag at the commit and leaves out the tag object, which
+      # holds the message. Fetching the tag itself brings the message back.
+      - name: Fetch the message of the tag
+        run: |
+          git fetch --force --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          if [ "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" != "tag" ]; then
+            echo "The tag $GITHUB_REF_NAME has no message. Tag with git tag -a, and write the notes of the release in the message." >&2
+            exit 1
+          fi
+
+      # A version with a hyphen, such as v1.3.0-rc.1, is a prerelease, as for the image.
+      - name: Publish the release
+        run: |
+          prerelease=()
+          if [[ $GITHUB_REF_NAME == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" --title "deneb $GITHUB_REF_NAME" --notes-from-tag --verify-tag "${prerelease[@]}"
+        env:
+          GH_TOKEN: ${{ github.token }}
