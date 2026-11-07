@@ -11,7 +11,13 @@ export default defineConfig({
     starlight({
       title: "deneb",
       description: "A self-hosted video API in one Docker image.",
-      logo: { src: "./src/assets/logo.png" },
+      // The logo stands for the title, in the copy that the color scheme of the page shows well.
+      logo: {
+        light: "./src/assets/deneb-wordmark.png",
+        dark: "./src/assets/deneb-wordmark-dark.png",
+        alt: "deneb",
+        replacesTitle: true,
+      },
       // The icon of the browser tab, as in the dashboard: favicon.svg turns its tile lighter
       // on dark tabs, and favicon.png is for browsers without SVG icons.
       favicon: "/favicon.svg",
@@ -36,7 +42,22 @@ export default defineConfig({
           ],
         },
         { label: "Settings", items: ["settings/configuration"] },
-        { label: "Reference", items: ["reference/api", "reference/encoding"] },
+        {
+          label: "Reference",
+          items: [
+            {
+              label: "API",
+              items: [
+                { label: "Overview", slug: "reference/api" },
+                "reference/api/videos",
+                "reference/api/uploads",
+                "reference/api/playback",
+                "reference/api/webhooks",
+              ],
+            },
+            "reference/encoding",
+          ],
+        },
         { label: "Internals", items: ["internals/architecture"] },
         { label: "Project", items: ["project/limits", "project/development"] },
       ],

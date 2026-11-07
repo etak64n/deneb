@@ -31,7 +31,11 @@ The image also contains FFmpeg, under GPL-2.0-or-later as Alpine Linux builds it
 
 ## Reference
 
-- [API reference](/deneb/reference/api/): the authentication, the errors, every endpoint, and the video object
+- [API reference](/deneb/reference/api/): every endpoint at a glance, with the authentication, the errors, and the pages of lists
+- [Videos](/deneb/reference/api/videos/): create, list, get, update, delete, and retry videos, and the fields of the video object
+- [Uploads](/deneb/reference/api/uploads/): the file of a video in one PUT, or with tus, and the fields of the upload object
+- [Playback](/deneb/reference/api/playback/): the files of the playback URLs, the embed page, and how long the URLs work
+- [Webhooks](/deneb/reference/api/webhooks/): the endpoints that receive the events, their deliveries, and the fields of the events
 - [Encoding](/deneb/reference/encoding/): the qualities, the formats, the poster, and the storyboard that deneb makes
 
 ## Internals
