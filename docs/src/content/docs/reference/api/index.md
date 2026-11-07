@@ -133,3 +133,12 @@ The other lists come whole: `GET /v1/webhooks` lists every endpoint, and `GET /v
 ## Health
 
 `GET /healthz` answers 200 with `{"status": "ok"}` while deneb runs. It needs no key, so a load balancer or a monitor can ask it.
+
+```sh
+# Ask whether deneb runs.
+curl -s https://video.example.com/healthz
+```
+
+```json
+{ "status": "ok" }
+```

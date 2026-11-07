@@ -93,14 +93,19 @@ Returns what a player shows beside the stream. The embed page reads it, and a pl
 
 ### Example
 
+```sh
+# The details of a video for a player.
+curl -s https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/info.json
+```
+
 ```json
 {
-  "title": "Product tour",
-  "duration": 8,
-  "width": 1280,
-  "height": 720,
   "captions": true,
-  "captions_language": "en"
+  "captions_language": "en",
+  "duration": 8,
+  "height": 720,
+  "title": "Product tour",
+  "width": 1280
 }
 ```
 

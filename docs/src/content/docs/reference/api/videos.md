@@ -60,6 +60,17 @@ curl -s https://video.example.com/v1/videos \
 
 ```json
 {
+  "upload": {
+    "url": "https://video.example.com/v1/uploads/vid_7wfd5nhpwadrdxgd7laif6x7ry?token=1794049100.Rk3s9vQpL2mX8tYw1BzN4cHd7eUa0fJg5iKo6nPrSq8",
+    "tus": {
+      "endpoint": "https://video.example.com/v1/uploads/",
+      "metadata": {
+        "token": "1794049100.Rk3s9vQpL2mX8tYw1BzN4cHd7eUa0fJg5iKo6nPrSq8",
+        "video_id": "vid_7wfd5nhpwadrdxgd7laif6x7ry"
+      }
+    },
+    "expires_at": "2026-11-07T10:58:20Z"
+  },
   "video": {
     "id": "vid_7wfd5nhpwadrdxgd7laif6x7ry",
     "title": "Product tour",
@@ -74,17 +85,6 @@ curl -s https://video.example.com/v1/videos \
     "captions": { "status": "none" },
     "created_at": "2026-11-06T10:58:20Z",
     "ready_at": null
-  },
-  "upload": {
-    "url": "https://video.example.com/v1/uploads/vid_7wfd5nhpwadrdxgd7laif6x7ry?token=1794049100.Rk3s9vQpL2mX8tYw1BzN4cHd7eUa0fJg5iKo6nPrSq8",
-    "tus": {
-      "endpoint": "https://video.example.com/v1/uploads/",
-      "metadata": {
-        "token": "1794049100.Rk3s9vQpL2mX8tYw1BzN4cHd7eUa0fJg5iKo6nPrSq8",
-        "video_id": "vid_7wfd5nhpwadrdxgd7laif6x7ry"
-      }
-    },
-    "expires_at": "2026-11-07T10:58:20Z"
   }
 }
 ```
@@ -121,9 +121,60 @@ Lists the videos, newest first, a page at a time.
 ### Example
 
 ```sh
-# The 10 newest videos: the ID and the status of each, then the cursor of the next page. KEY is a key of the API.
-curl -s "https://video.example.com/v1/videos?limit=10" \
-  -H "Authorization: Bearer $KEY" | jq -r '(.videos[] | "\(.id) \(.status)"), .next_cursor'
+# The two newest videos, and the cursor of the next page. KEY is a key of the API.
+curl -s "https://video.example.com/v1/videos?limit=2" \
+  -H "Authorization: Bearer $KEY"
+```
+
+```json
+{
+  "next_cursor": "MTc5Mzk2MTY2NzAwMDp2aWRfazNuNWI3cXd6MnhoNGZkcjZ0Y20yeWp2cGE",
+  "videos": [
+    {
+      "id": "vid_7wfd5nhpwadrdxgd7laif6x7ry",
+      "title": "Product tour",
+      "permanent_urls": false,
+      "status": "ready",
+      "progress": 1,
+      "duration": 8,
+      "width": 1280,
+      "height": 720,
+      "source_size": 3096076,
+      "renditions": [
+        { "name": "720p", "width": 1280, "height": 720, "bitrate": 2928000 },
+        { "name": "480p", "width": 852, "height": 480, "bitrate": 1528000 },
+        { "name": "360p", "width": 640, "height": 360, "bitrate": 896000 }
+      ],
+      "captions": { "status": "ready", "language": "en" },
+      "created_at": "2026-11-06T10:58:20Z",
+      "ready_at": "2026-11-06T10:58:25Z",
+      "playback": {
+        "hls_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/hls/master.m3u8",
+        "poster_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/poster.jpg",
+        "storyboard_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/storyboard.vtt",
+        "captions_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/captions.vtt",
+        "embed_url": "https://video.example.com/embed/vid_7wfd5nhpwadrdxgd7laif6x7ry?token=1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4",
+        "expires_at": "2026-11-07T11:00:00Z"
+      }
+    },
+    {
+      "id": "vid_k3n5b7qwz2xh4fdr6tcm2yjvpa",
+      "title": "Customer interview",
+      "permanent_urls": false,
+      "status": "failed",
+      "error": "the file is not a video: it has no video track",
+      "progress": 0,
+      "duration": 0,
+      "width": 0,
+      "height": 0,
+      "source_size": 14820167,
+      "renditions": [],
+      "captions": { "status": "none" },
+      "created_at": "2026-11-06T10:41:07Z",
+      "ready_at": null
+    }
+  ]
+}
 ```
 
 ## Get a video
@@ -156,9 +207,41 @@ Returns a video. A ready video has playback URLs that deneb signs for this answe
 ### Example
 
 ```sh
-# The playback URLs of a video. KEY is a key of the API.
+# A video and its playback URLs. KEY is a key of the API.
 curl -s https://video.example.com/v1/videos/vid_7wfd5nhpwadrdxgd7laif6x7ry \
-  -H "Authorization: Bearer $KEY" | jq .video.playback
+  -H "Authorization: Bearer $KEY"
+```
+
+```json
+{
+  "video": {
+    "id": "vid_7wfd5nhpwadrdxgd7laif6x7ry",
+    "title": "Product tour",
+    "permanent_urls": false,
+    "status": "ready",
+    "progress": 1,
+    "duration": 8,
+    "width": 1280,
+    "height": 720,
+    "source_size": 3096076,
+    "renditions": [
+      { "name": "720p", "width": 1280, "height": 720, "bitrate": 2928000 },
+      { "name": "480p", "width": 852, "height": 480, "bitrate": 1528000 },
+      { "name": "360p", "width": 640, "height": 360, "bitrate": 896000 }
+    ],
+    "captions": { "status": "ready", "language": "en" },
+    "created_at": "2026-11-06T10:58:20Z",
+    "ready_at": "2026-11-06T10:58:25Z",
+    "playback": {
+      "hls_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/hls/master.m3u8",
+      "poster_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/poster.jpg",
+      "storyboard_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/storyboard.vtt",
+      "captions_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/captions.vtt",
+      "embed_url": "https://video.example.com/embed/vid_7wfd5nhpwadrdxgd7laif6x7ry?token=1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4",
+      "expires_at": "2026-11-07T11:00:00Z"
+    }
+  }
+}
 ```
 
 ## Update a video
@@ -202,11 +285,43 @@ Browsers and CDNs may keep the segments and pictures of a video for up to a day.
 ### Example
 
 ```sh
-# Give a video permanent URLs. KEY is a key of the API.
+# Rename a video, and give it permanent URLs. KEY is a key of the API.
 curl -s -X PATCH https://video.example.com/v1/videos/vid_7wfd5nhpwadrdxgd7laif6x7ry \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
-  -d '{"permanent_urls": true}'
+  -d '{"title": "Product tour 2026", "permanent_urls": true}'
+```
+
+```json
+{
+  "video": {
+    "id": "vid_7wfd5nhpwadrdxgd7laif6x7ry",
+    "title": "Product tour 2026",
+    "permanent_urls": true,
+    "status": "ready",
+    "progress": 1,
+    "duration": 8,
+    "width": 1280,
+    "height": 720,
+    "source_size": 3096076,
+    "renditions": [
+      { "name": "720p", "width": 1280, "height": 720, "bitrate": 2928000 },
+      { "name": "480p", "width": 852, "height": 480, "bitrate": 1528000 },
+      { "name": "360p", "width": 640, "height": 360, "bitrate": 896000 }
+    ],
+    "captions": { "status": "ready", "language": "en" },
+    "created_at": "2026-11-06T10:58:20Z",
+    "ready_at": "2026-11-06T10:58:25Z",
+    "playback": {
+      "hls_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/permanent/hls/master.m3u8",
+      "poster_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/permanent/poster.jpg",
+      "storyboard_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/permanent/storyboard.vtt",
+      "captions_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/permanent/captions.vtt",
+      "embed_url": "https://video.example.com/embed/vid_7wfd5nhpwadrdxgd7laif6x7ry",
+      "expires_at": null
+    }
+  }
+}
 ```
 
 ## Delete a video
@@ -277,6 +392,26 @@ curl -s -X POST https://video.example.com/v1/videos/vid_7wfd5nhpwadrdxgd7laif6x7
   -H "Authorization: Bearer $KEY"
 ```
 
+```json
+{
+  "video": {
+    "id": "vid_7wfd5nhpwadrdxgd7laif6x7ry",
+    "title": "Product tour",
+    "permanent_urls": false,
+    "status": "queued",
+    "progress": 0,
+    "duration": 0,
+    "width": 0,
+    "height": 0,
+    "source_size": 3096076,
+    "renditions": [],
+    "captions": { "status": "none" },
+    "created_at": "2026-11-06T10:58:20Z",
+    "ready_at": null
+  }
+}
+```
+
 ## The video object
 
 Every endpoint on this page answers with the video in this form, and so do the events of webhooks.
@@ -321,9 +456,9 @@ Every endpoint on this page answers with the video in this form, and so do the e
 | `status` | string | Where the video is. The next table lists the statuses. |
 | `error` | string | Why the video failed, or why its last attempt failed while it waits for the next. Only when there is an error. |
 | `progress` | number | How far the encoding has gone, from 0 to 1, while the video is processing. |
-| `duration` | number | The length in seconds. 0 until deneb has read the file. |
-| `width` | integer | The width as displayed, after any rotation. 0 until deneb has read the file. |
-| `height` | integer | The height as displayed, after any rotation. 0 until deneb has read the file. |
+| `duration` | number | The length in seconds. 0 until the video is ready. |
+| `width` | integer | The width as displayed, after any rotation. 0 until the video is ready. |
+| `height` | integer | The height as displayed, after any rotation. 0 until the video is ready. |
 | `source_size` | integer | The size of the uploaded file in bytes. 0 until the file arrives. |
 | `renditions` | array | The qualities of the stream, largest first. Empty until the video is ready. |
 | `renditions[].name` | string | The name of the quality, such as `720p`. |
@@ -358,7 +493,7 @@ The [Playback](/deneb/reference/api/playback/) page describes the files behind t
 
 | Status | Meaning |
 | --- | --- |
-| `none` | The video has no captions: captions are off, or the video is not ready yet. |
+| `none` | The video has no captions: captions are off, the video has no audio, or the video is not ready yet. |
 | `queued` | The video is ready, and its captions wait for whisper.cpp. |
 | `processing` | whisper.cpp writes the captions. |
 | `ready` | The captions are ready at `playback.captions_url`. deneb sends the event `video.captions_ready`. |

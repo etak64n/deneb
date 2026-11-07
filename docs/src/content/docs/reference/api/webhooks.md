@@ -25,7 +25,7 @@ Adds an endpoint, and creates the secret that signs its events. Every event goes
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `url` | string | Yes | The URL that receives the events, of up to 2,048 characters. It starts with `https://` or `http://`, and may not point to a link-local address, where the metadata services of clouds answer. |
+| `url` | string | Yes | The URL that receives the events, of up to 2,048 characters. It starts with `https://` or `http://`, and may not point to an address where the metadata services of clouds answer: a link-local address, `fd00:ec2::254`, or `100.100.100.200`. |
 
 ### Answer
 
@@ -84,6 +84,31 @@ Lists every endpoint, newest first, without their secrets.
 | --- | --- |
 | 401 | The key is missing, wrong, or revoked. |
 
+### Example
+
+```sh
+# Every endpoint, newest first. KEY is a key of the API.
+curl -s https://video.example.com/v1/webhooks \
+  -H "Authorization: Bearer $KEY"
+```
+
+```json
+{
+  "webhooks": [
+    {
+      "id": "wh_q4kz7tq2vfa3xn5gw6hd2bpe3m",
+      "url": "https://example.com/hooks/deneb",
+      "created_at": "2026-11-06T10:50:00Z"
+    },
+    {
+      "id": "wh_3fhq7xk2mzc5dnr4tpw6ybv2le",
+      "url": "https://staging.example.com/hooks/deneb",
+      "created_at": "2026-11-06T10:46:30Z"
+    }
+  ]
+}
+```
+
 ## Delete an endpoint
 
 `DELETE /v1/webhooks/{id}`
@@ -137,12 +162,49 @@ Lists the latest 50 deliveries of an endpoint, newest first. deneb keeps the del
 ### Example
 
 ```sh
-# Each delivery of an endpoint, with its event and its status. KEY is a key of the API.
+# The deliveries of an endpoint, newest first. KEY is a key of the API.
 curl -s https://video.example.com/v1/webhooks/wh_q4kz7tq2vfa3xn5gw6hd2bpe3m/deliveries \
-  -H "Authorization: Bearer $KEY" | jq -r '.deliveries[] | "\(.event) \(.status) \(.attempts)"'
+  -H "Authorization: Bearer $KEY"
+```
+
+```json
+{
+  "deliveries": [
+    {
+      "id": "whd_6tq3nbx7kfr2wzh5dmy4cpl7ve",
+      "event": "video.captions_ready",
+      "status": "pending",
+      "attempts": 1,
+      "response_status": 503,
+      "last_error": "the endpoint answered 503 Service Unavailable",
+      "created_at": "2026-11-06T10:58:31Z",
+      "delivered_at": null
+    },
+    {
+      "id": "whd_2m6xk4qf7vbt3yh5nczr6d3jpa",
+      "event": "video.ready",
+      "status": "delivered",
+      "attempts": 1,
+      "response_status": 200,
+      "created_at": "2026-11-06T10:58:25Z",
+      "delivered_at": "2026-11-06T10:58:25Z"
+    }
+  ]
+}
 ```
 
 ## The webhook object
+
+`POST /v1/webhooks` answers with the endpoint in this form. `GET /v1/webhooks` leaves out `secret`.
+
+```json
+{
+  "id": "wh_q4kz7tq2vfa3xn5gw6hd2bpe3m",
+  "url": "https://example.com/hooks/deneb",
+  "secret": "whsec_3Jx8pQ2vN7mK4tL9wR6yB1cF5hD0sG2a",
+  "created_at": "2026-11-06T10:50:00Z"
+}
+```
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -174,7 +236,7 @@ A delivery is one event on its way to one endpoint, with every attempt to send i
 | `status` | string | `pending` while an attempt is due, `delivered` once the endpoint answered with 2xx, or `failed` after the last attempt failed. |
 | `attempts` | integer | How many attempts deneb made. |
 | `response_status` | integer | The status of the last answer of the endpoint, or 0 when it gave none. |
-| `last_error` | string | Why the last attempt failed. Only after a failed attempt. |
+| `last_error` | string | Why the last attempt failed. Only when it failed. |
 | `created_at` | string | When the event happened. |
 | `delivered_at` | string or null | When the endpoint took the event, or `null` before. |
 
@@ -192,11 +254,36 @@ deneb sends each event as a POST of JSON to every endpoint.
 
 ```json
 {
-  "type": "video.ready",
   "created_at": "2026-11-06T10:58:25Z",
   "data": {
-    "video": { "id": "vid_7wfd5nhpwadrdxgd7laif6x7ry", "title": "Product tour", "status": "ready" }
-  }
+    "video": {
+      "id": "vid_7wfd5nhpwadrdxgd7laif6x7ry",
+      "title": "Product tour",
+      "permanent_urls": false,
+      "status": "ready",
+      "progress": 1,
+      "duration": 8,
+      "width": 1280,
+      "height": 720,
+      "source_size": 3096076,
+      "renditions": [
+        { "name": "720p", "width": 1280, "height": 720, "bitrate": 2928000 },
+        { "name": "480p", "width": 852, "height": 480, "bitrate": 1528000 },
+        { "name": "360p", "width": 640, "height": 360, "bitrate": 896000 }
+      ],
+      "captions": { "status": "queued" },
+      "created_at": "2026-11-06T10:58:20Z",
+      "ready_at": "2026-11-06T10:58:25Z",
+      "playback": {
+        "hls_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/hls/master.m3u8",
+        "poster_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/poster.jpg",
+        "storyboard_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/storyboard.vtt",
+        "embed_url": "https://video.example.com/embed/vid_7wfd5nhpwadrdxgd7laif6x7ry?token=1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4",
+        "expires_at": "2026-11-07T11:00:00Z"
+      }
+    }
+  },
+  "type": "video.ready"
 }
 ```
 

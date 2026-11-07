@@ -89,7 +89,27 @@ The bytes of the video file, such as an MP4, as they are. deneb reads the format
 
 ```sh
 # Send clip.mp4 to the upload URL of a video. UPLOAD_URL is upload.url of POST /v1/videos.
-curl -s -T clip.mp4 "$UPLOAD_URL" | jq .video.status
+curl -s -T clip.mp4 "$UPLOAD_URL"
+```
+
+```json
+{
+  "video": {
+    "id": "vid_7wfd5nhpwadrdxgd7laif6x7ry",
+    "title": "Product tour",
+    "permanent_urls": false,
+    "status": "queued",
+    "progress": 0,
+    "duration": 0,
+    "width": 0,
+    "height": 0,
+    "source_size": 3096076,
+    "renditions": [],
+    "captions": { "status": "none" },
+    "created_at": "2026-11-06T10:58:20Z",
+    "ready_at": null
+  }
+}
 ```
 
 ## Create a tus upload
