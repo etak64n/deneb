@@ -101,7 +101,21 @@ export function onSignedOut(handler: () => void): void {
   signedOut = handler;
 }
 
+// A read runs again after a lost connection or an answer of 429 or 5xx, 0.5 and 1 second later.
+// A change runs once: one that reached deneb before its answer got lost must not happen twice.
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await requestOnce<T>(method, path, body);
+    } catch (error) {
+      const passing = error instanceof TypeError || (error instanceof ApiError && [429, 500, 502, 503, 504].includes(error.status));
+      if (method !== "GET" || !passing || attempt >= 3) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** (attempt - 1)));
+    }
+  }
+}
+
+async function requestOnce<T>(method: string, path: string, body?: unknown): Promise<T> {
   const response = await fetch(path, {
     method,
     credentials: "same-origin",
