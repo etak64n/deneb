@@ -93,7 +93,3 @@ To uninstall, remove the container and its volume. Removing the volume deletes t
 docker rm -f deneb
 docker volume rm deneb-data
 ```
-
-## License
-
-deneb is released under the MIT License. The image also contains FFmpeg, under GPL-2.0-or-later as Alpine Linux builds it, and whisper.cpp, under MIT. deneb runs FFmpeg as a separate program, and the Whisper models that it downloads are under MIT.

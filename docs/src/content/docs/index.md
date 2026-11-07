@@ -8,6 +8,7 @@ You upload a video, and deneb encodes it to HLS in several qualities, writes cap
 These pages explain how to run deneb, how to use its API, and how it works.
 
 The source and the releases are on [GitHub](https://github.com/etak64n/deneb). deneb is released under the MIT License.
+The image also contains FFmpeg, under GPL-2.0-or-later as Alpine Linux builds it, and whisper.cpp, under MIT. deneb runs FFmpeg as a separate program, and the Whisper models that it downloads are under MIT.
 
 ## Getting started
 
