@@ -11,7 +11,11 @@ export default defineConfig({
     starlight({
       title: "deneb",
       description: "A self-hosted video API in one Docker image.",
-      logo: { src: "./src/assets/logo.svg" },
+      logo: { src: "./src/assets/logo.png" },
+      // The icon of the browser tab, as in the dashboard: favicon.svg turns its tile lighter
+      // on dark tabs, and favicon.png is for browsers without SVG icons.
+      favicon: "/favicon.svg",
+      head: [{ tag: "link", attrs: { rel: "icon", type: "image/png", sizes: "64x64", href: "/deneb/favicon.png" } }],
       social: [{ icon: "github", label: "GitHub", href: "https://github.com/etak64n/deneb" }],
       editLink: { baseUrl: "https://github.com/etak64n/deneb/edit/main/docs/" },
       customCss: ["./src/styles/custom.css"],

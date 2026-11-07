@@ -71,7 +71,7 @@ const pointerSvg =
   '<svg width="26" height="26" viewBox="0 0 24 24"><path d="M4 2v17l4.5-4.2 3 6.7 2.8-1.2-3-6.6H17z" fill="#1a2c44" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>';
 const title = (lines) => `
   <div style="display:grid;justify-items:center;gap:16px;text-align:center">
-    <img src="${deneb}/logo.svg" width="76" height="76" alt="">
+    <img src="${deneb}/logo.png" width="76" height="76" alt="">
     <div style="font-size:46px;line-height:54px;font-weight:700">deneb</div>
     ${lines}
   </div>`;

@@ -1,4 +1,9 @@
-# deneb
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/deneb-wordmark-dark.png">
+    <img src=".github/deneb-wordmark.png" alt="deneb" width="400">
+  </picture>
+</h1>
 
 deneb is a self-hosted video API that runs as one Docker image.
 You upload a video, and deneb encodes it to HLS in several qualities, writes captions with Whisper, and returns signed URLs to play or embed it.

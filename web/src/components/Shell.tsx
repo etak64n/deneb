@@ -96,7 +96,7 @@ export function Shell({ user, onLogout, children }: { user: User; onLogout: () =
 function Brand() {
   return (
     <Link to="/" className="flex items-center gap-2 rounded-xs py-1">
-      <img src="/logo.svg" alt="" className="size-6" />
+      <img src="/logo.png" alt="" className="size-6" />
       <span className="text-sm font-semibold text-heading">deneb</span>
     </Link>
   );

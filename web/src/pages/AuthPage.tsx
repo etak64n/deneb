@@ -31,7 +31,7 @@ export function AuthPage({ setup, onSignedIn }: { setup: boolean; onSignedIn: ()
     <main className="grid min-h-screen place-items-center bg-surface-subdued px-4 py-10">
       <form onSubmit={handleSubmit} className="grid w-full max-w-sm gap-5 rounded-lg bg-surface p-6 shadow-[0_0_0_1px_var(--ds-hairline)]">
         <div className="grid gap-3">
-          <img src="/logo.svg" alt="" className="size-8" />
+          <img src="/logo.png" alt="" className="size-8" />
           <h1 className="text-figure font-bold text-heading">{setup ? "Create the administrator" : "Sign in to deneb"}</h1>
         </div>
         <label className="grid gap-1.5">
