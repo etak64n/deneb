@@ -39,7 +39,7 @@ type Delivery struct {
 // CreateWebhook adds an endpoint for the events.
 func (s *Store) CreateWebhook(ctx context.Context, id, url, secret string, now time.Time) (Webhook, error) {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO webhooks (id, url, secret, created_at) VALUES (?, ?, ?, ?)`, id, url, secret, millis(now))
-	return Webhook{ID: id, URL: url, Secret: secret, CreatedAt: now}, err
+	return Webhook{ID: id, URL: url, Secret: secret, CreatedAt: stored(now)}, err
 }
 
 // ListWebhooks returns every endpoint, the newest first.

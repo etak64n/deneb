@@ -52,7 +52,7 @@ The answer of `POST /v1/videos` holds the video and two ways to upload its file.
     "source_size": 0,
     "renditions": [],
     "captions": { "status": "none" },
-    "created_at": "2026-11-06T10:58:20Z",
+    "created_at": "2026-11-06T10:58:20.483Z",
     "ready_at": null
   },
   "upload": {

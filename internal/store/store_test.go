@@ -353,6 +353,52 @@ func TestWebhookDeliveries(t *testing.T) {
 	}
 }
 
+// A write returns its time as the database keeps it, to the millisecond, so that the
+// answer to a create shows the same time as a later read.
+func TestWritesReturnTheStoredTime(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	at := start.Add(123456789 * time.Nanosecond)
+	kept := start.Add(123 * time.Millisecond)
+
+	user, err := s.CreateFirstUser(ctx, "usr_1", "admin@example.com", "hash", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := s.UserByEmail(ctx, "admin@example.com")
+	if err != nil || !user.CreatedAt.Equal(kept) || !read.CreatedAt.Equal(kept) {
+		t.Errorf("user created at %v, read %v, %v", user.CreatedAt, read.CreatedAt, err)
+	}
+
+	key, err := s.CreateAPIKey(ctx, "key_1", "CI", "dnb_abcdef", "secret-hash", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	used, err := s.UseAPIKey(ctx, "secret-hash", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := s.ListAPIKeys(ctx)
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("keys %+v, %v", keys, err)
+	}
+	if !key.CreatedAt.Equal(kept) || !keys[0].CreatedAt.Equal(kept) {
+		t.Errorf("key created at %v, read %v", key.CreatedAt, keys[0].CreatedAt)
+	}
+	if used.LastUsedAt == nil || !used.LastUsedAt.Equal(kept) || keys[0].LastUsedAt == nil || !keys[0].LastUsedAt.Equal(kept) {
+		t.Errorf("key used at %v, read %v", used.LastUsedAt, keys[0].LastUsedAt)
+	}
+
+	hook, err := s.CreateWebhook(ctx, "wh_1", "https://example.com/hook", "whsec_1", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooks, err := s.ListWebhooks(ctx)
+	if err != nil || len(hooks) != 1 || !hook.CreatedAt.Equal(kept) || !hooks[0].CreatedAt.Equal(kept) {
+		t.Errorf("webhook created at %v, read %+v, %v", hook.CreatedAt, hooks, err)
+	}
+}
+
 func TestVideoPermanentURLs(t *testing.T) {
 	ctx := context.Background()
 	s := open(t)

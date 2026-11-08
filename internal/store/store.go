@@ -102,6 +102,10 @@ func millis(t time.Time) int64 { return t.UnixMilli() }
 
 func fromMillis(ms int64) time.Time { return time.UnixMilli(ms).UTC() }
 
+// stored returns a time as the database keeps it, in UTC to the millisecond, so that a
+// write returns the same time as a later read.
+func stored(t time.Time) time.Time { return fromMillis(millis(t)) }
+
 func nullableTime(value sql.NullInt64) *time.Time {
 	if !value.Valid {
 		return nil

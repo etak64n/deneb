@@ -83,7 +83,7 @@ curl -s https://video.example.com/v1/videos \
     "source_size": 0,
     "renditions": [],
     "captions": { "status": "none" },
-    "created_at": "2026-11-06T10:58:20Z",
+    "created_at": "2026-11-06T10:58:20.483Z",
     "ready_at": null
   }
 }
@@ -146,8 +146,8 @@ curl -s "https://video.example.com/v1/videos?limit=2" \
         { "name": "360p", "width": 640, "height": 360, "bitrate": 896000 }
       ],
       "captions": { "status": "ready", "language": "en" },
-      "created_at": "2026-11-06T10:58:20Z",
-      "ready_at": "2026-11-06T10:58:25Z",
+      "created_at": "2026-11-06T10:58:20.483Z",
+      "ready_at": "2026-11-06T10:58:25.917Z",
       "playback": {
         "hls_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/hls/master.m3u8",
         "poster_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/poster.jpg",
@@ -170,7 +170,7 @@ curl -s "https://video.example.com/v1/videos?limit=2" \
       "source_size": 14820167,
       "renditions": [],
       "captions": { "status": "none" },
-      "created_at": "2026-11-06T10:41:07Z",
+      "created_at": "2026-11-06T10:41:07.205Z",
       "ready_at": null
     }
   ]
@@ -230,8 +230,8 @@ curl -s https://video.example.com/v1/videos/vid_7wfd5nhpwadrdxgd7laif6x7ry \
       { "name": "360p", "width": 640, "height": 360, "bitrate": 896000 }
     ],
     "captions": { "status": "ready", "language": "en" },
-    "created_at": "2026-11-06T10:58:20Z",
-    "ready_at": "2026-11-06T10:58:25Z",
+    "created_at": "2026-11-06T10:58:20.483Z",
+    "ready_at": "2026-11-06T10:58:25.917Z",
     "playback": {
       "hls_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/hls/master.m3u8",
       "poster_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/poster.jpg",
@@ -310,8 +310,8 @@ curl -s -X PATCH https://video.example.com/v1/videos/vid_7wfd5nhpwadrdxgd7laif6x
       { "name": "360p", "width": 640, "height": 360, "bitrate": 896000 }
     ],
     "captions": { "status": "ready", "language": "en" },
-    "created_at": "2026-11-06T10:58:20Z",
-    "ready_at": "2026-11-06T10:58:25Z",
+    "created_at": "2026-11-06T10:58:20.483Z",
+    "ready_at": "2026-11-06T10:58:25.917Z",
     "playback": {
       "hls_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/permanent/hls/master.m3u8",
       "poster_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/permanent/poster.jpg",
@@ -406,7 +406,7 @@ curl -s -X POST https://video.example.com/v1/videos/vid_7wfd5nhpwadrdxgd7laif6x7
     "source_size": 3096076,
     "renditions": [],
     "captions": { "status": "none" },
-    "created_at": "2026-11-06T10:58:20Z",
+    "created_at": "2026-11-06T10:58:20.483Z",
     "ready_at": null
   }
 }
@@ -433,8 +433,8 @@ Every endpoint on this page answers with the video in this form, and so do the e
     { "name": "360p", "width": 640, "height": 360, "bitrate": 896000 }
   ],
   "captions": { "status": "ready", "language": "en" },
-  "created_at": "2026-11-06T10:58:20Z",
-  "ready_at": "2026-11-06T10:58:25Z",
+  "created_at": "2026-11-06T10:58:20.483Z",
+  "ready_at": "2026-11-06T10:58:25.917Z",
   "playback": {
     "hls_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/hls/master.m3u8",
     "poster_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/poster.jpg",

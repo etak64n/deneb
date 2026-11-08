@@ -81,7 +81,7 @@ curl -s https://video.example.com/v1/videos -H "Authorization: Bearer $KEY"
 - An empty body counts as an object without fields.
 - An answer of the API is JSON that browsers and proxies do not keep (`Cache-Control: no-store`). An answer of 204 has no body.
 - An answer holds its object under its name, such as `{"video": {...}}`, and a list under the plural, such as `{"videos": [...]}`.
-- Times are in RFC 3339, in UTC, such as `2026-11-06T10:58:20Z`. A time that has not come, such as the `ready_at` of a video that is not ready, is `null`.
+- Times are in RFC 3339, in UTC, to the millisecond, such as `2026-11-06T10:58:20.483Z`. The fraction of a second drops its trailing zeros, and a time on a whole second, such as the `expires_at` of an upload, has none. A time that has not come, such as the `ready_at` of a video that is not ready, is `null`.
 - IDs start with the kind of their object: `vid_` for videos, `wh_` for webhook endpoints, and `whd_` for deliveries.
 - A path under `/v1/` that names no endpoint gets 404 with the message `no such endpoint`.
 

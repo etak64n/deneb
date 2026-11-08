@@ -43,7 +43,7 @@ func (s *Store) CreateFirstUser(ctx context.Context, id, email, passwordHash str
 	if rows, _ := result.RowsAffected(); rows == 0 {
 		return User{}, ErrExists
 	}
-	return User{ID: id, Email: email, PasswordHash: passwordHash, CreatedAt: now}, nil
+	return User{ID: id, Email: email, PasswordHash: passwordHash, CreatedAt: stored(now)}, nil
 }
 
 // UserByEmail returns the administrator with the email.
@@ -91,7 +91,7 @@ func (s *Store) DeleteExpiredSessions(ctx context.Context, now time.Time) error 
 func (s *Store) CreateAPIKey(ctx context.Context, id, name, prefix, secretHash string, now time.Time) (APIKey, error) {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO api_keys (id, name, prefix, secret_hash, created_at) VALUES (?, ?, ?, ?, ?)`,
 		id, name, prefix, secretHash, millis(now))
-	return APIKey{ID: id, Name: name, Prefix: prefix, CreatedAt: now}, err
+	return APIKey{ID: id, Name: name, Prefix: prefix, CreatedAt: stored(now)}, err
 }
 
 // ListAPIKeys returns every key of the API, the newest first.
@@ -137,7 +137,8 @@ func (s *Store) UseAPIKey(ctx context.Context, secretHash string, now time.Time)
 	// the old time rather than refuse a key that is right.
 	if !used.Valid || now.Sub(fromMillis(used.Int64)) >= time.Minute {
 		if _, err := s.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = ? WHERE id = ?`, millis(now), key.ID); err == nil {
-			key.LastUsedAt = &now
+			last := stored(now)
+			key.LastUsedAt = &last
 		}
 	}
 	return key, nil

@@ -414,16 +414,19 @@ func (a *App) emit(ctx context.Context, event, videoID string) {
 		}
 		return
 	}
+	// The event and its deliveries share one time, cut to the millisecond as the database
+	// keeps it, so that the created_at of the event is that of its deliveries.
+	now := a.now().Truncate(time.Millisecond)
 	payload, err := json.Marshal(map[string]any{
 		"type":       event,
-		"created_at": a.now(),
+		"created_at": now,
 		"data":       map[string]any{"video": a.View(video, a.cfg.PublicURL)},
 	})
 	if err != nil {
 		a.log.Error("encode an event", "event", event, "error", err)
 		return
 	}
-	if err := a.store.QueueEvent(ctx, event, string(payload), func() string { return NewID("whd") }, a.now()); err != nil {
+	if err := a.store.QueueEvent(ctx, event, string(payload), func() string { return NewID("whd") }, now); err != nil {
 		a.log.Error("queue an event", "event", event, "error", err)
 		return
 	}

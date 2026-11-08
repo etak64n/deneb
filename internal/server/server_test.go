@@ -754,3 +754,36 @@ func TestWebhooks(t *testing.T) {
 		t.Errorf("deliveries of a deleted webhook: %d %s", r.status, r.body)
 	}
 }
+
+// The answer to a create shows the same time as the list, which reads it from the database.
+func TestCreateAndListShowTheSameTime(t *testing.T) {
+	h := newHarness(t, nil)
+	h.signIn()
+	type object struct {
+		CreatedAt string `json:"created_at"`
+	}
+
+	var webhook struct {
+		Webhook object `json:"webhook"`
+	}
+	var webhooks struct {
+		Webhooks []object `json:"webhooks"`
+	}
+	h.dashboard("POST", "/v1/webhooks", map[string]string{"url": "https://example.com/hooks/deneb"}).json(t, &webhook)
+	h.do("GET", "/v1/webhooks", nil).json(t, &webhooks)
+	if len(webhooks.Webhooks) != 1 || webhooks.Webhooks[0].CreatedAt != webhook.Webhook.CreatedAt {
+		t.Errorf("a webhook created at %q is listed as %+v", webhook.Webhook.CreatedAt, webhooks.Webhooks)
+	}
+
+	var key struct {
+		APIKey object `json:"api_key"`
+	}
+	var keys struct {
+		APIKeys []object `json:"api_keys"`
+	}
+	h.dashboard("POST", "/v1/api-keys", map[string]string{"name": "test"}).json(t, &key)
+	h.do("GET", "/v1/api-keys", nil).json(t, &keys)
+	if len(keys.APIKeys) != 1 || keys.APIKeys[0].CreatedAt != key.APIKey.CreatedAt {
+		t.Errorf("a key created at %q is listed as %+v", key.APIKey.CreatedAt, keys.APIKeys)
+	}
+}

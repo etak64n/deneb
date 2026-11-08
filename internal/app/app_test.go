@@ -544,3 +544,32 @@ func TestWebhookRetry(t *testing.T) {
 		t.Errorf("retry %+v", retry)
 	}
 }
+
+// An event shows the time of its deliveries, to the millisecond as the database keeps it.
+func TestEventTime(t *testing.T) {
+	ctx := context.Background()
+	a := newApp(t)
+	// A clock that moves on by a millisecond at each reading, and is never on a whole one.
+	clock := time.Date(2026, 11, 6, 10, 58, 25, 917_654_321, time.UTC)
+	a.now = func() time.Time {
+		clock = clock.Add(time.Millisecond)
+		return clock
+	}
+	a.store.CreateVideo(ctx, "vid_a", "Talk", a.now())
+	a.store.CreateWebhook(ctx, "wh_a", "https://example.com/hook", "whsec_a", a.now())
+	a.emit(ctx, EventVideoReady, "vid_a")
+
+	deliveries, err := a.store.ListDeliveries(ctx, "wh_a", 10)
+	if err != nil || len(deliveries) != 1 {
+		t.Fatalf("deliveries %+v, %v", deliveries, err)
+	}
+	var event struct {
+		CreatedAt string `json:"created_at"`
+	}
+	if err := json.Unmarshal([]byte(deliveries[0].Payload), &event); err != nil {
+		t.Fatal(err)
+	}
+	if want := deliveries[0].CreatedAt.Format(time.RFC3339Nano); event.CreatedAt != want {
+		t.Errorf("the event shows %s, and its delivery %s", event.CreatedAt, want)
+	}
+}

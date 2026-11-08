@@ -106,7 +106,7 @@ curl -s -T clip.mp4 "$UPLOAD_URL"
     "source_size": 3096076,
     "renditions": [],
     "captions": { "status": "none" },
-    "created_at": "2026-11-06T10:58:20Z",
+    "created_at": "2026-11-06T10:58:20.483Z",
     "ready_at": null
   }
 }

@@ -59,7 +59,7 @@ curl -s https://video.example.com/v1/webhooks \
     "id": "wh_q4kz7tq2vfa3xn5gw6hd2bpe3m",
     "url": "https://example.com/hooks/deneb",
     "secret": "whsec_3Jx8pQ2vN7mK4tL9wR6yB1cF5hD0sG2a",
-    "created_at": "2026-11-06T10:50:00Z"
+    "created_at": "2026-11-06T10:50:00.358Z"
   }
 }
 ```
@@ -98,12 +98,12 @@ curl -s https://video.example.com/v1/webhooks \
     {
       "id": "wh_q4kz7tq2vfa3xn5gw6hd2bpe3m",
       "url": "https://example.com/hooks/deneb",
-      "created_at": "2026-11-06T10:50:00Z"
+      "created_at": "2026-11-06T10:50:00.358Z"
     },
     {
       "id": "wh_3fhq7xk2mzc5dnr4tpw6ybv2le",
       "url": "https://staging.example.com/hooks/deneb",
-      "created_at": "2026-11-06T10:46:30Z"
+      "created_at": "2026-11-06T10:46:30.112Z"
     }
   ]
 }
@@ -177,7 +177,7 @@ curl -s https://video.example.com/v1/webhooks/wh_q4kz7tq2vfa3xn5gw6hd2bpe3m/deli
       "attempts": 1,
       "response_status": 503,
       "last_error": "the endpoint answered 503 Service Unavailable",
-      "created_at": "2026-11-06T10:58:31Z",
+      "created_at": "2026-11-06T10:58:31.276Z",
       "delivered_at": null
     },
     {
@@ -186,8 +186,8 @@ curl -s https://video.example.com/v1/webhooks/wh_q4kz7tq2vfa3xn5gw6hd2bpe3m/deli
       "status": "delivered",
       "attempts": 1,
       "response_status": 200,
-      "created_at": "2026-11-06T10:58:25Z",
-      "delivered_at": "2026-11-06T10:58:25Z"
+      "created_at": "2026-11-06T10:58:25.921Z",
+      "delivered_at": "2026-11-06T10:58:26.034Z"
     }
   ]
 }
@@ -202,7 +202,7 @@ curl -s https://video.example.com/v1/webhooks/wh_q4kz7tq2vfa3xn5gw6hd2bpe3m/deli
   "id": "wh_q4kz7tq2vfa3xn5gw6hd2bpe3m",
   "url": "https://example.com/hooks/deneb",
   "secret": "whsec_3Jx8pQ2vN7mK4tL9wR6yB1cF5hD0sG2a",
-  "created_at": "2026-11-06T10:50:00Z"
+  "created_at": "2026-11-06T10:50:00.358Z"
 }
 ```
 
@@ -224,8 +224,8 @@ A delivery is one event on its way to one endpoint, with every attempt to send i
   "status": "delivered",
   "attempts": 1,
   "response_status": 200,
-  "created_at": "2026-11-06T10:58:25Z",
-  "delivered_at": "2026-11-06T10:58:25Z"
+  "created_at": "2026-11-06T10:58:25.921Z",
+  "delivered_at": "2026-11-06T10:58:26.034Z"
 }
 ```
 
@@ -254,7 +254,7 @@ deneb sends each event as a POST of JSON to every endpoint.
 
 ```json
 {
-  "created_at": "2026-11-06T10:58:25Z",
+  "created_at": "2026-11-06T10:58:25.921Z",
   "data": {
     "video": {
       "id": "vid_7wfd5nhpwadrdxgd7laif6x7ry",
@@ -272,8 +272,8 @@ deneb sends each event as a POST of JSON to every endpoint.
         { "name": "360p", "width": 640, "height": 360, "bitrate": 896000 }
       ],
       "captions": { "status": "queued" },
-      "created_at": "2026-11-06T10:58:20Z",
-      "ready_at": "2026-11-06T10:58:25Z",
+      "created_at": "2026-11-06T10:58:20.483Z",
+      "ready_at": "2026-11-06T10:58:25.917Z",
       "playback": {
         "hls_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/hls/master.m3u8",
         "poster_url": "https://video.example.com/play/vid_7wfd5nhpwadrdxgd7laif6x7ry/1794049200.yA0AfKH5xhRVDS6eSfMAx1-KxPIYimj_UbPRtnMSrt4/poster.jpg",

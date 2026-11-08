@@ -43,7 +43,7 @@ An event is a POST of JSON, with the video as `GET /v1/videos/{id}` returns it.
 ```json
 {
   "type": "video.ready",
-  "created_at": "2026-11-06T10:58:25Z",
+  "created_at": "2026-11-06T10:58:25.921Z",
   "data": {
     "video": { "id": "vid_7wfd5nhpwadrdxgd7laif6x7ry", "title": "Product tour", "status": "ready" }
   }
